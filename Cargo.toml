@@ -1,0 +1,14 @@
+[package]
+name = "stremio-example-ui"
+version = "0.1.0"
+authors = ["Ivo Georgiev <ivo@strem.io>"]
+edition = "2018"
+
+[dependencies]
+stremio-state-ng = { git = "https://github.com/stremio/stremio-state-ng.git", branch = "refactor/chain-final" }
+reqwest = "0.9.x"
+tokio = "0.1"
+futures = "0.1"
+serde = { version = "1.0", features = ["derive", "rc"] }
+enclose = "0.1.3"
+
