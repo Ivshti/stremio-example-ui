@@ -55,9 +55,11 @@ fn main() {
 }
 
 
-const WIN_H: u32 = 400;
-const WIN_W: u32 = 400;
+const WIN_H: u32 = 600;
+const WIN_W: u32 = 1000;
 use gfx::Device;
+use conrod_core::widget_ids;
+use conrod_core::{widget, Labelable, Positionable, Colorable, Sizeable, Widget};
 
 const CLEAR_COLOR: [f32; 4] = [0.2, 0.2, 0.2, 1.0];
 
@@ -81,7 +83,7 @@ impl<'a> conrod_winit::WinitWindow for WindowRef<'a> {
 fn run_ui() {
     // Builder for window
     let builder = glutin::WindowBuilder::new()
-        .with_title("Conrod with GFX and Glutin")
+        .with_title("Stremio Example UI")
         .with_dimensions((WIN_W, WIN_H).into());
 
     let context = glutin::ContextBuilder::new()
@@ -99,6 +101,15 @@ fn run_ui() {
     // Create Ui and Ids of widgets to instantiate
     let mut ui = conrod_core::UiBuilder::new([WIN_W as f64, WIN_H as f64])
         .build();
+
+    let mut count = 0;
+
+    // load the font
+    ui.fonts.insert_from_file("./assets/fonts/NotoSans-Regular.ttf").unwrap();
+
+    // Generate the widget identifiers.
+    widget_ids!(struct Ids { canvas, counter });
+    let ids = Ids::new(ui.widget_id_generator());
 
     let mut image_map = conrod_core::image::Map::new();
 
@@ -128,8 +139,7 @@ fn run_ui() {
         }
 
         let mut should_quit = false;
-        events_loop.poll_events(|event|{
-
+        events_loop.poll_events(|event| {
             // Convert winit event to conrod event, requires conrod to be built with the `winit` feature
             if let Some(event) = conrod_winit::convert_event(event.clone(), &WindowRef(window.window())) {
                 ui.handle_event(event);
@@ -159,7 +169,22 @@ fn run_ui() {
 
         // Update widgets if any event has happened
         if ui.global_input().events().next().is_some() {
-            let mut ui = ui.set_widgets();
+            let ui = &mut ui.set_widgets();
+            // Create a background canvas upon which we'll place the button.
+            widget::Canvas::new()
+                .pad(40.0)
+                .color(conrod_core::color::BLUE)
+                .set(ids.canvas, ui);
+
+            // Draw the button and increment `count` if pressed.
+            for _click in widget::Button::new()
+                .middle_of(ids.canvas)
+                .w_h(80.0, 80.0)
+                .label(&count.to_string())
+                .set(ids.counter, ui)
+            {
+                count += 1;
+            }
         }
     }
 }
