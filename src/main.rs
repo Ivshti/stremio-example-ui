@@ -12,6 +12,7 @@ use std::sync::mpsc::channel;
 use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
 use enclose::*;
+use std::ops::Deref;
 
 // for now, we will spawn conrod in a separate thread and communicate via channels
 // otherwise, we may find a better solution here:
@@ -22,40 +23,40 @@ use enclose::*;
 // * figure out state shape and can we avoid copying groups
 // * wrap the Container state itself in a Mutex
 
-struct ContainerHolder<S: 'static>(Mutex<Container<S>>);
+struct ContainerHolder(Mutex<CatalogGrouped>);
 
-impl<S> ContainerHolder<S> {
-    pub fn new(container: Container<S>) -> Self {
+impl ContainerHolder {
+    pub fn new(container: CatalogGrouped) -> Self {
         ContainerHolder(Mutex::new(container))
     }
 }
 
-impl<S> ContainerInterface for ContainerHolder<S>
-where
-    S: Serialize,
+impl ContainerInterface for ContainerHolder
 {
     fn dispatch(&self, action: &Action) -> bool {
-        self.0.lock()
-            .expect("failed to lock container")
-            .dispatch(action)
+        let mut state = self.0.lock().expect("failed to lock container");
+        match state.dispatch(action) {
+            Some(s) => {
+                *state = *s;
+                true
+            }
+            None => false
+        }
     }
     fn get_state_serialized(&self) -> Result<String, serde_json::Error> {
-        serde_json::to_string(&self.0.lock().expect("failed to lock container").get_state())
+        serde_json::to_string(self.0.lock().expect("failed to lock container").deref())
     }
 }
 
 struct App {
-    container: Arc<ContainerHolder<CatalogGrouped>>,
+    container: Arc<ContainerHolder>,
     is_dirty: AtomicBool
 }
 
 fn main() {
     let (tx, rx) = channel();
 
-    let container = Arc::new(ContainerHolder::new(Container::with_reducer(
-        CatalogGrouped::new(),
-        &catalogs_reducer,
-    )));
+    let container = Arc::new(ContainerHolder::new(CatalogGrouped::new()));
 
     let app = Arc::new(App {
         container: container.clone(),
@@ -218,7 +219,7 @@ fn run_ui(app: Arc<App>, tx: std::sync::mpsc::Sender<Action>) {
 
             // Draw the button and increment `count` if pressed.
             let container = app.container.0.lock().expect("unable to lock app from ui");
-            let count = container.get_state().groups.iter()
+            let count = container.groups.iter()
                 .filter(|g| {
                     match g.1 {
                         Loadable::Ready(_) => true,

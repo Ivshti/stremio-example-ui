@@ -1590,7 +1590,7 @@ dependencies = [
 [[package]]
 name = "stremio-state-ng"
 version = "0.1.0"
-source = "git+https://github.com/stremio/stremio-state-ng.git#fd43cd6ae1bacdda9bafe9f7a3785955459c9260"
+source = "git+https://github.com/stremio/stremio-state-ng.git#8d2ace6fa458a2ec85de879a20224669e8c8eb20"
 dependencies = [
  "base64 0.10.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "chrono 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
