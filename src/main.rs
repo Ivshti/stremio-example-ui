@@ -21,6 +21,7 @@ use enclose::*;
 // TODO
 // * update the UI while we're receiving stuff
 // * figure out state shape and can we avoid copying groups
+// * wrap the Container state itself in a Mutex
 
 #[derive(Debug, Default)]
 struct AppState {

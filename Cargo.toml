@@ -5,7 +5,7 @@ authors = ["Ivo Georgiev <ivo@strem.io>"]
 edition = "2018"
 
 [dependencies]
-stremio-state-ng = { git = "https://github.com/stremio/stremio-state-ng.git", branch = "refactor/chain-final" }
+stremio-state-ng = { git = "https://github.com/stremio/stremio-state-ng.git" }
 reqwest = "0.9.x"
 tokio = "0.1"
 futures = "0.1"
