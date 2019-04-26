@@ -6,7 +6,6 @@ use tokio::runtime::current_thread::run;
 use tokio::executor::current_thread::spawn;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
-use std::cell::RefCell;
 use std::rc::Rc;
 use std::thread;
 use std::sync::mpsc::channel;
@@ -23,35 +22,46 @@ use enclose::*;
 // * figure out state shape and can we avoid copying groups
 // * wrap the Container state itself in a Mutex
 
-#[derive(Debug, Default)]
-struct AppState {
-    count: u32
+struct ContainerHolder<S: 'static>(Mutex<Container<S>>);
+
+impl<S> ContainerHolder<S> {
+    pub fn new(container: Container<S>) -> Self {
+        ContainerHolder(Mutex::new(container))
+    }
 }
 
-#[derive(Debug)]
-struct App {
-    state: Mutex<AppState>,
-    is_dirty: AtomicBool
-}
-impl App {
-    fn new() -> Self {
-        App {
-            state: Mutex::new(Default::default()),
-            is_dirty: AtomicBool::new(false),
-        }
+impl<S> ContainerInterface for ContainerHolder<S>
+where
+    S: Serialize,
+{
+    fn dispatch(&self, action: &Action) -> bool {
+        self.0.lock()
+            .expect("failed to lock container")
+            .dispatch(action)
     }
+    fn get_state_serialized(&self) -> Result<String, serde_json::Error> {
+        serde_json::to_string(&self.0.lock().expect("failed to lock container").get_state())
+    }
+}
+
+struct App {
+    container: Arc<ContainerHolder<CatalogGrouped>>,
+    is_dirty: AtomicBool
 }
 
 fn main() {
     let (tx, rx) = channel();
 
-    // @TODO should this be a new type
-    let app = Arc::new(App::new());
-
-    let container = Rc::new(RefCell::new(Container::with_reducer(
+    let container = Arc::new(ContainerHolder::new(Container::with_reducer(
         CatalogGrouped::new(),
         &catalogs_reducer,
     )));
+
+    let app = Arc::new(App {
+        container: container.clone(),
+        is_dirty: AtomicBool::new(false), 
+    });
+
     #[derive(Debug, Clone)]
     enum ContainerId {
         Board,
@@ -61,22 +71,15 @@ fn main() {
             Box::new(ContextMiddleware::<Env>::new()),
             Box::new(AddonsMiddleware::<Env>::new()),
         ],
-        vec![(ContainerId::Board, container.clone())],
-        Box::new(enclose!((app, container) move |ev| {
+        vec![(ContainerId::Board, container.clone() as Arc<dyn ContainerInterface>)],
+        Box::new(enclose!((app) move |ev| {
             if let Event::NewState(ContainerId::Board) = ev {
-                let mut state = app.state.lock().expect("unable to lock app");
-                state.count = container.borrow().get_state().groups.iter().filter(|g| {
-                    match g.1 {
-                        Loadable::Ready(_) => true,
-                        _ => false
-                    }
-                }).count() as u32;
                 app.is_dirty.store(true, Ordering::Relaxed);
             }
             //eventTx.send(ev).map_err(|_| ());
         })),
     ));
-    
+
     // Spawn the UI
     let ui_thread = thread::spawn(enclose!((app) || run_ui(app, tx)));
 
@@ -214,11 +217,20 @@ fn run_ui(app: Arc<App>, tx: std::sync::mpsc::Sender<Action>) {
                 .set(ids.canvas, ui);
 
             // Draw the button and increment `count` if pressed.
-            let state = app.state.lock().expect("unable to lock app from ui");
+            let container = app.container.0.lock().expect("unable to lock app from ui");
+            let count = container.get_state().groups.iter()
+                .filter(|g| {
+                    match g.1 {
+                        Loadable::Ready(_) => true,
+                        _ => false
+                    }
+                })
+                .count();
+
             for _click in widget::Button::new()
                 .middle_of(ids.canvas)
                 .w_h(80.0, 80.0)
-                .label(&state.count.to_string())
+                .label(&count.to_string())
                 .set(ids.counter, ui)
             {
                 let action = Action::Load(ActionLoad::CatalogGrouped { extra: vec![] });
