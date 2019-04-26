@@ -10,14 +10,24 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::thread;
 use std::sync::mpsc::channel;
+use std::sync::{Arc, Mutex};
+use enclose::*;
 
 // for now, we will spawn conrod in a separate thread and communicate via channels
 // otherwise, we may find a better solution here:
 // https://github.com/tokio-rs/tokio-core/issues/150
 
+#[derive(Debug)]
+struct App {
+    count: u32
+}
+
 fn main() {
     //let (actionTx, actionRx) = channel();
     //let (eventTx, eventRx) = channel();
+
+    // @TODO should this be a new type
+    let app_state = Arc::new(Mutex::new(App { count: 0 }));
 
     let container = Rc::new(RefCell::new(Container::with_reducer(
         CatalogGrouped::new(),
@@ -33,16 +43,17 @@ fn main() {
             Box::new(AddonsMiddleware::<Env>::new()),
         ],
         vec![(ContainerId::Board, container.clone())],
-        Box::new(move |ev| {
-            if let Event::NewState(_) = ev {
-                dbg!(ev);
+        Box::new(enclose!((app_state, container) move |ev| {
+            if let Event::NewState(ContainerId::Board) = ev {
+                let mut state = app_state.lock().expect("unable to lock app_state");
+                state.count = container.borrow().get_state().groups.len() as u32;
             }
             //eventTx.send(ev).map_err(|_| ());
-        }),
+        })),
     ));
     
     // Spawn the UI
-    let handler = thread::spawn(run_ui);
+    let handler = thread::spawn(enclose!((app_state) || run_ui(app_state)));
 
     // @TODO channel that's listening for actions
     run(lazy(move || {
@@ -80,7 +91,7 @@ impl<'a> conrod_winit::WinitWindow for WindowRef<'a> {
     }
 }
 
-fn run_ui() {
+fn run_ui(app_state: Arc<Mutex<App>>) {
     // Builder for window
     let builder = glutin::WindowBuilder::new()
         .with_title("Stremio Example UI")
@@ -101,8 +112,6 @@ fn run_ui() {
     // Create Ui and Ids of widgets to instantiate
     let mut ui = conrod_core::UiBuilder::new([WIN_W as f64, WIN_H as f64])
         .build();
-
-    let mut count = 0;
 
     // load the font
     ui.fonts.insert_from_file("./assets/fonts/NotoSans-Regular.ttf").unwrap();
@@ -177,13 +186,15 @@ fn run_ui() {
                 .set(ids.canvas, ui);
 
             // Draw the button and increment `count` if pressed.
+            let state = app_state.lock().expect("unable to lock app_state from ui");
             for _click in widget::Button::new()
                 .middle_of(ids.canvas)
                 .w_h(80.0, 80.0)
-                .label(&count.to_string())
+                .label(&state.count.to_string())
                 .set(ids.counter, ui)
             {
-                count += 1;
+                // @TODO
+                //count += 1;
             }
         }
     }
