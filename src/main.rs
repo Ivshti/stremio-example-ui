@@ -2,7 +2,7 @@ use stremio_state_ng::middlewares::*;
 use stremio_state_ng::state_types::*;
 use futures::{future, Future};
 use futures::future::lazy;
-use tokio::runtime::current_thread::Runtime;
+use tokio::runtime::current_thread::run;
 use tokio::executor::current_thread::spawn;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -31,14 +31,12 @@ fn main() {
         }),
     ));
 
-    let mut rt = Runtime::new().expect("failed to create tokio runtime");
-    rt.spawn(lazy(move || {
+    run(lazy(move || {
         // this is the dispatch operation
         let action = &Action::Load(ActionLoad::CatalogGrouped { extra: vec![] });
         muxer.dispatch(action);
         future::ok(())
     }));
-    rt.run().expect("failed to run tokio runtime");
 }
 
 struct Env {}
