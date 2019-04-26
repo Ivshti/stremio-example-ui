@@ -11,22 +11,41 @@ use std::rc::Rc;
 use std::thread;
 use std::sync::mpsc::channel;
 use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
 use enclose::*;
 
 // for now, we will spawn conrod in a separate thread and communicate via channels
 // otherwise, we may find a better solution here:
 // https://github.com/tokio-rs/tokio-core/issues/150
 
+// TODO
+// * update the UI while we're receiving stuff
+// * figure out state shape and can we avoid copying groups
+
+#[derive(Debug, Default)]
+struct AppState {
+    count: u32
+}
+
 #[derive(Debug)]
 struct App {
-    count: u32
+    state: Mutex<AppState>,
+    is_dirty: AtomicBool
+}
+impl App {
+    fn new() -> Self {
+        App {
+            state: Mutex::new(Default::default()),
+            is_dirty: AtomicBool::new(false),
+        }
+    }
 }
 
 fn main() {
     let (tx, rx) = channel();
 
     // @TODO should this be a new type
-    let app_state = Arc::new(Mutex::new(App { count: 0 }));
+    let app = Arc::new(App::new());
 
     let container = Rc::new(RefCell::new(Container::with_reducer(
         CatalogGrouped::new(),
@@ -42,23 +61,27 @@ fn main() {
             Box::new(AddonsMiddleware::<Env>::new()),
         ],
         vec![(ContainerId::Board, container.clone())],
-        Box::new(enclose!((app_state, container) move |ev| {
+        Box::new(enclose!((app, container) move |ev| {
             if let Event::NewState(ContainerId::Board) = ev {
-                let mut state = app_state.lock().expect("unable to lock app_state");
+                let mut state = app.state.lock().expect("unable to lock app");
                 state.count = container.borrow().get_state().groups.iter().filter(|g| {
                     match g.1 {
                         Loadable::Ready(_) => true,
                         _ => false
                     }
                 }).count() as u32;
+                app.is_dirty.store(true, Ordering::Relaxed);
             }
             //eventTx.send(ev).map_err(|_| ());
         })),
     ));
     
     // Spawn the UI
-    let ui_thread = thread::spawn(enclose!((app_state) || run_ui(app_state, tx)));
+    let ui_thread = thread::spawn(enclose!((app) || run_ui(app, tx)));
 
+    // @TODO: this here is not right,
+    // cause we won't be able to react to any new actions while we're still processing the last one
+    // to fix it, turn the rx.recv() into a stream and give that stream to the executor
     while let Ok(action) = rx.recv() {
         run(lazy(enclose!((muxer) move || {
             muxer.dispatch(&action);
@@ -95,7 +118,7 @@ impl<'a> conrod_winit::WinitWindow for WindowRef<'a> {
     }
 }
 
-fn run_ui(app_state: Arc<Mutex<App>>, tx: std::sync::mpsc::Sender<Action>) {
+fn run_ui(app: Arc<App>, tx: std::sync::mpsc::Sender<Action>) {
     // Builder for window
     let builder = glutin::WindowBuilder::new()
         .with_title("Stremio Example UI")
@@ -124,7 +147,7 @@ fn run_ui(app_state: Arc<Mutex<App>>, tx: std::sync::mpsc::Sender<Action>) {
     widget_ids!(struct Ids { canvas, counter });
     let ids = Ids::new(ui.widget_id_generator());
 
-    let mut image_map = conrod_core::image::Map::new();
+    let image_map = conrod_core::image::Map::new();
 
     'main: loop {
         // If the window is closed, this will be None for one tick, so to avoid panicking with
@@ -181,7 +204,7 @@ fn run_ui(app_state: Arc<Mutex<App>>, tx: std::sync::mpsc::Sender<Action>) {
         }
 
         // Update widgets if any event has happened
-        if ui.global_input().events().next().is_some() {
+        if ui.global_input().events().next().is_some() || app.is_dirty.load(Ordering::Relaxed) {
             let ui = &mut ui.set_widgets();
             // Create a background canvas upon which we'll place the button.
             widget::Canvas::new()
@@ -190,7 +213,7 @@ fn run_ui(app_state: Arc<Mutex<App>>, tx: std::sync::mpsc::Sender<Action>) {
                 .set(ids.canvas, ui);
 
             // Draw the button and increment `count` if pressed.
-            let state = app_state.lock().expect("unable to lock app_state from ui");
+            let state = app.state.lock().expect("unable to lock app from ui");
             for _click in widget::Button::new()
                 .middle_of(ids.canvas)
                 .w_h(80.0, 80.0)
@@ -200,6 +223,8 @@ fn run_ui(app_state: Arc<Mutex<App>>, tx: std::sync::mpsc::Sender<Action>) {
                 let action = Action::Load(ActionLoad::CatalogGrouped { extra: vec![] });
                 tx.send(action).expect("failed sending action");
             }
+
+            app.is_dirty.store(false, Ordering::Relaxed);
         }
     }
 }
