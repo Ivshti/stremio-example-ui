@@ -23,8 +23,7 @@ struct App {
 }
 
 fn main() {
-    //let (actionTx, actionRx) = channel();
-    //let (eventTx, eventRx) = channel();
+    let (tx, rx) = channel();
 
     // @TODO should this be a new type
     let app_state = Arc::new(Mutex::new(App { count: 0 }));
@@ -46,23 +45,28 @@ fn main() {
         Box::new(enclose!((app_state, container) move |ev| {
             if let Event::NewState(ContainerId::Board) = ev {
                 let mut state = app_state.lock().expect("unable to lock app_state");
-                state.count = container.borrow().get_state().groups.len() as u32;
+                state.count = container.borrow().get_state().groups.iter().filter(|g| {
+                    match g.1 {
+                        Loadable::Ready(_) => true,
+                        _ => false
+                    }
+                }).count() as u32;
             }
             //eventTx.send(ev).map_err(|_| ());
         })),
     ));
     
     // Spawn the UI
-    let handler = thread::spawn(enclose!((app_state) || run_ui(app_state)));
+    let ui_thread = thread::spawn(enclose!((app_state) || run_ui(app_state, tx)));
 
-    // @TODO channel that's listening for actions
-    run(lazy(move || {
-        // this is the dispatch operation
-        let action = &Action::Load(ActionLoad::CatalogGrouped { extra: vec![] });
-        muxer.dispatch(action);
-        future::ok(())
-    }));
-    handler.join().unwrap();
+    while let Ok(action) = rx.recv() {
+        run(lazy(enclose!((muxer) move || {
+            muxer.dispatch(&action);
+            future::ok(())
+        })));
+    }
+
+    ui_thread.join().unwrap();
 }
 
 
@@ -91,7 +95,7 @@ impl<'a> conrod_winit::WinitWindow for WindowRef<'a> {
     }
 }
 
-fn run_ui(app_state: Arc<Mutex<App>>) {
+fn run_ui(app_state: Arc<Mutex<App>>, tx: std::sync::mpsc::Sender<Action>) {
     // Builder for window
     let builder = glutin::WindowBuilder::new()
         .with_title("Stremio Example UI")
@@ -193,8 +197,8 @@ fn run_ui(app_state: Arc<Mutex<App>>) {
                 .label(&state.count.to_string())
                 .set(ids.counter, ui)
             {
-                // @TODO
-                //count += 1;
+                let action = Action::Load(ActionLoad::CatalogGrouped { extra: vec![] });
+                tx.send(action).expect("failed sending action");
             }
         }
     }
