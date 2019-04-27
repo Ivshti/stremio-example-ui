@@ -127,6 +127,10 @@ impl<'a> conrod_winit::WinitWindow for WindowRef<'a> {
 }
 
 fn run_ui(app: Arc<App>, tx: std::sync::mpsc::Sender<Action>) {
+    // Trigger loading a catalog ASAP
+    let action = Action::Load(ActionLoad::CatalogGrouped { extra: vec![] });
+    tx.send(action).expect("failed sending action");
+
     // Builder for window
     let builder = glutin::WindowBuilder::new()
         .with_title("Stremio Example UI")
@@ -147,7 +151,7 @@ fn run_ui(app: Arc<App>, tx: std::sync::mpsc::Sender<Action>) {
     let mut renderer =
         conrod_gfx::Renderer::new(&mut factory, &rtv, window.get_hidpi_factor() as f64).unwrap();
 
-    // Create Ui and Ids of widgets to instantiate
+    // Create UI and Ids of widgets to instantiate
     let mut ui = conrod_core::UiBuilder::new([WIN_W as f64, WIN_H as f64]).build();
 
     // load the font
@@ -156,7 +160,7 @@ fn run_ui(app: Arc<App>, tx: std::sync::mpsc::Sender<Action>) {
         .unwrap();
 
     // Generate the widget identifiers.
-    widget_ids!(struct Ids { canvas, counter });
+    widget_ids!(struct Ids { canvas, list });
     let ids = Ids::new(ui.widget_id_generator());
 
     let image_map = conrod_core::image::Map::new();
@@ -231,14 +235,33 @@ fn run_ui(app: Arc<App>, tx: std::sync::mpsc::Sender<Action>) {
         // Update widgets if any event has happened
         if ui.global_input().events().next().is_some() || app.is_dirty.load(Ordering::Relaxed) {
             let ui = &mut ui.set_widgets();
-            // Create a background canvas upon which we'll place the button.
-            widget::Canvas::new()
-                .pad(40.0)
-                .color(conrod_core::color::BLUE)
-                .set(ids.canvas, ui);
 
-            // Draw the button and increment `count` if pressed.
+            widget::Canvas::new().color(conrod_core::color::DARK_CHARCOAL).set(ids.canvas, ui);
+
             let container = app.container.0.lock().expect("unable to lock app from ui");
+
+            let (mut items, scrollbar) = widget::List::flow_down(container.groups.len())
+                .item_size(50.0)
+                .scrollbar_on_top()
+                .middle_of(ids.canvas)
+                .wh_of(ids.canvas)
+                .set(ids.list, ui);
+            while let Some(item) = items.next(ui) {
+                let group = &container.groups[item.i];
+                let label = format!("{}", match &group.1 {
+                    Loadable::Ready(_) => "ready",
+                    //Loadable::Message(m) => &m,
+                    Loadable::Loading => "loading",
+                    Loadable::ReadyEmpty => "empty",
+                    _ => "unknown",
+                });
+                let toggle = widget::Toggle::new(false)
+                    .label(&label)
+                    .label_color(conrod_core::color::WHITE)
+                    .color(conrod_core::color::LIGHT_BLUE);
+                item.set(toggle, ui);
+            }
+            /*
             let count = container
                 .groups
                 .iter()
@@ -247,7 +270,6 @@ fn run_ui(app: Arc<App>, tx: std::sync::mpsc::Sender<Action>) {
                     _ => false,
                 })
                 .count();
-
             for _click in widget::Button::new()
                 .middle_of(ids.canvas)
                 .w_h(80.0, 80.0)
@@ -257,6 +279,7 @@ fn run_ui(app: Arc<App>, tx: std::sync::mpsc::Sender<Action>) {
                 let action = Action::Load(ActionLoad::CatalogGrouped { extra: vec![] });
                 tx.send(action).expect("failed sending action");
             }
+            */
 
             app.is_dirty.store(false, Ordering::Relaxed);
         }
