@@ -249,11 +249,10 @@ fn run_ui(app: Arc<App>, tx: std::sync::mpsc::Sender<Action>) {
             while let Some(item) = items.next(ui) {
                 let group = &container.groups[item.i];
                 let label = format!("{}", match &group.1 {
-                    Loadable::Ready(_) => "ready",
-                    //Loadable::Message(m) => &m,
                     Loadable::Loading => "loading",
+                    Loadable::Ready(_) => "ready",
+                    Loadable::Message(ref m) => m,
                     Loadable::ReadyEmpty => "empty",
-                    _ => "unknown",
                 });
                 let toggle = widget::Toggle::new(false)
                     .label(&label)
@@ -280,6 +279,7 @@ fn run_ui(app: Arc<App>, tx: std::sync::mpsc::Sender<Action>) {
                 tx.send(action).expect("failed sending action");
             }
             */
+            if let Some(s) = scrollbar { s.set(ui) };
 
             app.is_dirty.store(false, Ordering::Relaxed);
         }
