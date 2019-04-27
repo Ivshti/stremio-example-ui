@@ -103,6 +103,9 @@ const WIN_W: u32 = 1000;
 use gfx::Device;
 use conrod_core::widget_ids;
 use conrod_core::{widget, Labelable, Positionable, Colorable, Sizeable, Widget};
+use std::time::{Instant, Duration};
+
+const FRAME_MILLIS: u64 = 15;
 
 const CLEAR_COLOR: [f32; 4] = [0.2, 0.2, 0.2, 1.0];
 
@@ -154,7 +157,11 @@ fn run_ui(app: Arc<App>, tx: std::sync::mpsc::Sender<Action>) {
 
     let image_map = conrod_core::image::Map::new();
 
+    let mut last_tick;
+
     'main: loop {
+        last_tick = Instant::now();
+
         // If the window is closed, this will be None for one tick, so to avoid panicking with
         // unwrap, instead break the loop
         let (win_w, win_h): (u32, u32) = match window.get_inner_size() {
@@ -240,6 +247,12 @@ fn run_ui(app: Arc<App>, tx: std::sync::mpsc::Sender<Action>) {
 
             app.is_dirty.store(false, Ordering::Relaxed);
         }
+
+        // Only tick each FRAME_MILLIS; wait if we're faster than that
+        let to_wait = Duration::from_millis(FRAME_MILLIS)
+            .checked_sub(last_tick.elapsed())
+            .unwrap_or(Duration::new(0, 0));
+        thread::sleep(to_wait);
     }
 }
 
