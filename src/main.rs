@@ -1,6 +1,6 @@
 use enclose::*;
 use futures::sync::mpsc::channel;
-use futures::{future, Future, Sink, Stream};
+use futures::{future, Future, Stream};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use std::ops::Deref;
@@ -11,7 +11,7 @@ use std::thread;
 use stremio_state_ng::middlewares::*;
 use stremio_state_ng::state_types::*;
 use tokio::executor::current_thread::spawn;
-use tokio::runtime::current_thread::Runtime;
+use tokio::runtime::current_thread::run;
 
 // for now, we will spawn conrod in a separate thread and communicate via channels
 // otherwise, we may find a better solution here:
@@ -20,6 +20,7 @@ use tokio::runtime::current_thread::Runtime;
 // TODO
 // * implement a primitive UI
 // * fix window resizing
+// * cache, images
 
 struct ContainerHolder(Mutex<CatalogGrouped>);
 
@@ -80,28 +81,20 @@ fn main() {
         })),
     ));
 
-    // create the runtime and use the handle
-    let mut runtime = Runtime::new().expect("failed to create runtime");
-    let handle = runtime.handle();
-
     // Actions channel
     let (tx, rx) = channel(MAX_ACTION_BUFFER);
 
     // Spawn the UI
     let dispatch = Box::new(move |action| {
-        handle
-            .spawn(tx.clone().send(action).map(|_| ()).map_err(|_| ()))
-            .expect("failed sending action");
+        tx.clone().try_send(action).expect("failed sending");
     });
     let ui_thread = thread::spawn(enclose!((app) || run_ui(app, dispatch)));
 
-    runtime.spawn(rx.for_each(enclose!((muxer) move |action| {
+    run(rx.for_each(enclose!((muxer) move |action| {
         muxer.dispatch(&action);
         future::ok(())
     })));
 
-    // Run the tokio event loop and then wait for the ui_thread to finish
-    runtime.run().expect("failed running tokio runtime");
     ui_thread.join().expect("failed joining ui_thread");
 }
 
