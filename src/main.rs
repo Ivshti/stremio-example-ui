@@ -20,6 +20,7 @@ use tokio::runtime::current_thread::run;
 // TODO
 // * implement a primitive UI
 // * fix window resizing
+// * decide the cache/storage layer; perhaps paritydb
 // * cache, images
 
 struct ContainerHolder(Mutex<CatalogGrouped>);
@@ -241,51 +242,48 @@ fn run_ui(app: Arc<App>, dispatch: Box<Fn(Action)>) {
 
             let container = app.container.0.lock().expect("unable to lock app from ui");
 
-            let (mut items, scrollbar) = widget::List::flow_down(container.groups.len())
+            let (mut groups_items, scrollbar) = widget::List::flow_down(container.groups.len())
                 .item_size(50.0)
                 .scrollbar_on_top()
                 .middle_of(ids.canvas)
                 .wh_of(ids.canvas)
                 .set(ids.list, ui);
-            while let Some(item) = items.next(ui) {
-                let group = &container.groups[item.i];
-                let label = format!(
-                    "{}",
-                    match &group.1 {
-                        Loadable::Loading => "loading",
-                        Loadable::Ready(_) => "ready",
-                        Loadable::Message(ref m) => m,
-                        Loadable::ReadyEmpty => "empty",
+            while let Some(group_item) = groups_items.next(ui) {
+                let group = &container.groups[group_item.i];
+                if let Loadable::Ready(meta_items) = &group.1 {
+                    // @TODO: calculate dynamically
+                    let to_render_count = std::cmp::min(8, meta_items.len());
+                    let group_list = widget::List::flow_right(to_render_count)
+                        .item_size(80.0);
+                    let (mut items, _) = group_item.set(group_list, ui);
+                    while let Some(item) = items.next(ui) {
+                        let meta_item = &meta_items[item.i];
+                        let toggle = widget::Toggle::new(false)
+                            .label(&meta_item.name)
+                            .label_color(conrod_core::color::WHITE)
+                            .color(conrod_core::color::LIGHT_PURPLE);
+                        for _v in item.set(toggle, ui) {
+                            let action = Action::Load(ActionLoad::CatalogGrouped { extra: vec![] });
+                            dispatch(action);
+                        };
                     }
-                );
-                let toggle = widget::Toggle::new(false)
-                    .label(&label)
-                    .label_color(conrod_core::color::WHITE)
-                    .color(conrod_core::color::LIGHT_BLUE);
-                for _v in item.set(toggle, ui) {
-                    let action = Action::Load(ActionLoad::CatalogGrouped { extra: vec![] });
-                    dispatch(action);
+                } else {
+                    let label = format!(
+                        "{}",
+                        match &group.1 {
+                            Loadable::Loading => "loading",
+                            Loadable::Message(ref m) => m,
+                            Loadable::ReadyEmpty => "empty",
+                            _ => "unknown"
+                        }
+                    );
+                    let toggle = widget::Toggle::new(false)
+                        .label(&label)
+                        .label_color(conrod_core::color::WHITE)
+                        .color(conrod_core::color::LIGHT_BLUE);
+                    group_item.set(toggle, ui);
                 }
             }
-            /*
-            let count = container
-                .groups
-                .iter()
-                .filter(|g| match g.1 {
-                    Loadable::Ready(_) => true,
-                    _ => false,
-                })
-                .count();
-            for _click in widget::Button::new()
-                .middle_of(ids.canvas)
-                .w_h(80.0, 80.0)
-                .label(&count.to_string())
-                .set(ids.counter, ui)
-            {
-                let action = Action::Load(ActionLoad::CatalogGrouped { extra: vec![] });
-                tx.send(action).expect("failed sending action");
-            }
-            */
             if let Some(s) = scrollbar {
                 s.set(ui)
             };
