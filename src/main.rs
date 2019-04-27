@@ -19,9 +19,8 @@ use tokio::runtime::current_thread::run;
 // https://github.com/tokio-rs/tokio-core/issues/150
 
 // TODO
-// * update the UI while we're receiving stuff
-// * figure out state shape and can we avoid copying groups
-// * wrap the Container state itself in a Mutex
+// * implement a primitive UI
+// * fix window resizing
 
 struct ContainerHolder(Mutex<CatalogGrouped>);
 
