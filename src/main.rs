@@ -206,18 +206,10 @@ fn run_ui(app: Arc<App>, tx: std::sync::mpsc::Sender<Action>) {
                 ui.handle_event(event);
             }
 
-            // Close window if the escape key or the exit button is pressed
-            match event {
-                winit::Event::WindowEvent { event, .. } => match event {
-                    winit::WindowEvent::KeyboardInput {
-                        input:
-                            winit::KeyboardInput {
-                                virtual_keycode: Some(winit::VirtualKeyCode::Escape),
-                                ..
-                            },
-                        ..
-                    }
-                    | winit::WindowEvent::CloseRequested => should_quit = true,
+            // Close window if the exit button is pressed
+            if let winit::Event::WindowEvent { event, .. } = event {
+                match event {
+                    winit::WindowEvent::CloseRequested => should_quit = true,
                     winit::WindowEvent::Resized(logical_size) => {
                         let hidpi_factor = window.get_hidpi_factor();
                         let physical_size = logical_size.to_physical(hidpi_factor);
@@ -229,8 +221,7 @@ fn run_ui(app: Arc<App>, tx: std::sync::mpsc::Sender<Action>) {
                         renderer.on_resize(new_color);
                     }
                     _ => {}
-                },
-                _ => {}
+                }
             }
         });
         if should_quit {
