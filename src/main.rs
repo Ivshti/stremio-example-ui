@@ -1,18 +1,18 @@
-use stremio_state_ng::middlewares::*;
-use stremio_state_ng::state_types::*;
-use futures::{future, Future};
+use enclose::*;
 use futures::future::lazy;
-use tokio::runtime::current_thread::run;
-use tokio::executor::current_thread::spawn;
+use futures::{future, Future};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
+use std::ops::Deref;
 use std::rc::Rc;
-use std::thread;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::channel;
 use std::sync::{Arc, Mutex};
-use std::sync::atomic::{AtomicBool, Ordering};
-use enclose::*;
-use std::ops::Deref;
+use std::thread;
+use stremio_state_ng::middlewares::*;
+use stremio_state_ng::state_types::*;
+use tokio::executor::current_thread::spawn;
+use tokio::runtime::current_thread::run;
 
 // for now, we will spawn conrod in a separate thread and communicate via channels
 // otherwise, we may find a better solution here:
@@ -31,8 +31,7 @@ impl ContainerHolder {
     }
 }
 
-impl ContainerInterface for ContainerHolder
-{
+impl ContainerInterface for ContainerHolder {
     fn dispatch(&self, action: &Action) -> bool {
         let mut state = self.0.lock().expect("failed to lock container");
         match state.dispatch(action) {
@@ -40,7 +39,7 @@ impl ContainerInterface for ContainerHolder
                 *state = *s;
                 true
             }
-            None => false
+            None => false,
         }
     }
     fn get_state_serialized(&self) -> Result<String, serde_json::Error> {
@@ -50,7 +49,7 @@ impl ContainerInterface for ContainerHolder
 
 struct App {
     container: Arc<ContainerHolder>,
-    is_dirty: AtomicBool
+    is_dirty: AtomicBool,
 }
 
 fn main() {
@@ -60,7 +59,7 @@ fn main() {
 
     let app = Arc::new(App {
         container: container.clone(),
-        is_dirty: AtomicBool::new(false), 
+        is_dirty: AtomicBool::new(false),
     });
 
     #[derive(Debug, Clone)]
@@ -72,7 +71,10 @@ fn main() {
             Box::new(ContextMiddleware::<Env>::new()),
             Box::new(AddonsMiddleware::<Env>::new()),
         ],
-        vec![(ContainerId::Board, container.clone() as Arc<dyn ContainerInterface>)],
+        vec![(
+            ContainerId::Board,
+            container.clone() as Arc<dyn ContainerInterface>,
+        )],
         Box::new(enclose!((app) move |ev| {
             if let Event::NewState(ContainerId::Board) = ev {
                 app.is_dirty.store(true, Ordering::Relaxed);
@@ -97,13 +99,12 @@ fn main() {
     ui_thread.join().unwrap();
 }
 
-
 const WIN_H: u32 = 600;
 const WIN_W: u32 = 1000;
-use gfx::Device;
 use conrod_core::widget_ids;
-use conrod_core::{widget, Labelable, Positionable, Colorable, Sizeable, Widget};
-use std::time::{Instant, Duration};
+use conrod_core::{widget, Colorable, Labelable, Positionable, Sizeable, Widget};
+use gfx::Device;
+use std::time::{Duration, Instant};
 
 const FRAME_MILLIS: u64 = 15;
 
@@ -132,24 +133,28 @@ fn run_ui(app: Arc<App>, tx: std::sync::mpsc::Sender<Action>) {
         .with_title("Stremio Example UI")
         .with_dimensions((WIN_W, WIN_H).into());
 
-    let context = glutin::ContextBuilder::new()
-        .with_multisampling(4);
+    let context = glutin::ContextBuilder::new().with_multisampling(4);
 
     let mut events_loop = winit::EventsLoop::new();
 
     // Initialize gfx things
-    let (window, mut device, mut factory, rtv, _) =
-        gfx_window_glutin::init::<conrod_gfx::ColorFormat, DepthFormat>(builder, context, &events_loop).unwrap();
+    let (window, mut device, mut factory, rtv, _) = gfx_window_glutin::init::<
+        conrod_gfx::ColorFormat,
+        DepthFormat,
+    >(builder, context, &events_loop)
+    .unwrap();
     let mut encoder: gfx::Encoder<_, _> = factory.create_command_buffer().into();
 
-    let mut renderer = conrod_gfx::Renderer::new(&mut factory, &rtv, window.get_hidpi_factor() as f64).unwrap();
+    let mut renderer =
+        conrod_gfx::Renderer::new(&mut factory, &rtv, window.get_hidpi_factor() as f64).unwrap();
 
     // Create Ui and Ids of widgets to instantiate
-    let mut ui = conrod_core::UiBuilder::new([WIN_W as f64, WIN_H as f64])
-        .build();
+    let mut ui = conrod_core::UiBuilder::new([WIN_W as f64, WIN_H as f64]).build();
 
     // load the font
-    ui.fonts.insert_from_file("./assets/fonts/NotoSans-Regular.ttf").unwrap();
+    ui.fonts
+        .insert_from_file("./assets/fonts/NotoSans-Regular.ttf")
+        .unwrap();
 
     // Generate the widget identifiers.
     widget_ids!(struct Ids { canvas, counter });
@@ -177,9 +182,15 @@ fn run_ui(app: Arc<App>, tx: std::sync::mpsc::Sender<Action>) {
             //Clear the window
             renderer.clear(&mut encoder, CLEAR_COLOR);
 
-            renderer.fill(&mut encoder,dims,dpi_factor as f64,primitives,&image_map);
+            renderer.fill(
+                &mut encoder,
+                dims,
+                dpi_factor as f64,
+                primitives,
+                &image_map,
+            );
 
-            renderer.draw(&mut factory,&mut encoder,&image_map);
+            renderer.draw(&mut factory, &mut encoder, &image_map);
 
             encoder.flush(&mut device);
             window.swap_buffers().unwrap();
@@ -189,26 +200,37 @@ fn run_ui(app: Arc<App>, tx: std::sync::mpsc::Sender<Action>) {
         let mut should_quit = false;
         events_loop.poll_events(|event| {
             // Convert winit event to conrod event, requires conrod to be built with the `winit` feature
-            if let Some(event) = conrod_winit::convert_event(event.clone(), &WindowRef(window.window())) {
+            if let Some(event) =
+                conrod_winit::convert_event(event.clone(), &WindowRef(window.window()))
+            {
                 ui.handle_event(event);
             }
 
             // Close window if the escape key or the exit button is pressed
             match event {
-                winit::Event::WindowEvent{event, .. } =>
-                    match event {
-                        winit::WindowEvent::KeyboardInput{ input: winit::KeyboardInput{ virtual_keycode: Some(winit::VirtualKeyCode::Escape),..}, ..} |
-                        winit::WindowEvent::CloseRequested => should_quit = true,
-                        winit::WindowEvent::Resized(logical_size) => {
-                            let hidpi_factor = window.get_hidpi_factor();
-                            let physical_size = logical_size.to_physical(hidpi_factor);
-                            window.resize(physical_size);
-                            let (new_color, _) = gfx_window_glutin::new_views::<conrod_gfx::ColorFormat, DepthFormat>(&window);
-                            renderer.on_resize(new_color);
-                        }
-                        _ => {},
-                    },
-                _ => {},
+                winit::Event::WindowEvent { event, .. } => match event {
+                    winit::WindowEvent::KeyboardInput {
+                        input:
+                            winit::KeyboardInput {
+                                virtual_keycode: Some(winit::VirtualKeyCode::Escape),
+                                ..
+                            },
+                        ..
+                    }
+                    | winit::WindowEvent::CloseRequested => should_quit = true,
+                    winit::WindowEvent::Resized(logical_size) => {
+                        let hidpi_factor = window.get_hidpi_factor();
+                        let physical_size = logical_size.to_physical(hidpi_factor);
+                        window.resize(physical_size);
+                        let (new_color, _) = gfx_window_glutin::new_views::<
+                            conrod_gfx::ColorFormat,
+                            DepthFormat,
+                        >(&window);
+                        renderer.on_resize(new_color);
+                    }
+                    _ => {}
+                },
+                _ => {}
             }
         });
         if should_quit {
@@ -226,12 +248,12 @@ fn run_ui(app: Arc<App>, tx: std::sync::mpsc::Sender<Action>) {
 
             // Draw the button and increment `count` if pressed.
             let container = app.container.0.lock().expect("unable to lock app from ui");
-            let count = container.groups.iter()
-                .filter(|g| {
-                    match g.1 {
-                        Loadable::Ready(_) => true,
-                        _ => false
-                    }
+            let count = container
+                .groups
+                .iter()
+                .filter(|g| match g.1 {
+                    Loadable::Ready(_) => true,
+                    _ => false,
                 })
                 .count();
 
@@ -255,7 +277,6 @@ fn run_ui(app: Arc<App>, tx: std::sync::mpsc::Sender<Action>) {
         thread::sleep(to_wait);
     }
 }
-
 
 // Define the environment
 struct Env {}
