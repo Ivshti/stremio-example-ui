@@ -47,7 +47,7 @@ impl ContainerInterface for ContainerHolder {
     }
 }
 
-struct App {
+struct AppSt {
     container: Arc<ContainerHolder>,
     is_dirty: AtomicBool,
 }
@@ -57,7 +57,7 @@ const MAX_ACTION_BUFFER: usize = 1024;
 fn main() {
     let container = Arc::new(ContainerHolder::new(CatalogGrouped::new()));
 
-    let app = Arc::new(App {
+    let app = Arc::new(AppSt {
         container: container.clone(),
         is_dirty: AtomicBool::new(false),
     });
@@ -99,204 +99,36 @@ fn main() {
     ui_thread.join().expect("failed joining ui_thread");
 }
 
-const WIN_H: u32 = 600;
-const WIN_W: u32 = 1000;
-use conrod_core::widget_ids;
-use conrod_core::{widget, Colorable, Labelable, Positionable, Sizeable, Widget};
-use gfx::Device;
-use std::time::{Duration, Instant};
-
-const FRAME_MILLIS: u64 = 15;
-
-const CLEAR_COLOR: [f32; 4] = [0.2, 0.2, 0.2, 1.0];
-
-type DepthFormat = gfx::format::DepthStencil;
-
-// A wrapper around the winit window that allows us to implement the trait necessary for enabling
-// the winit <-> conrod conversion functions.
-struct WindowRef<'a>(&'a winit::Window);
-
-// Implement the `WinitWindow` trait for `WindowRef` to allow for generating compatible conversion
-// functions.
-impl<'a> conrod_winit::WinitWindow for WindowRef<'a> {
-    fn get_inner_size(&self) -> Option<(u32, u32)> {
-        winit::Window::get_inner_size(&self.0).map(Into::into)
-    }
-    fn hidpi_factor(&self) -> f32 {
-        winit::Window::get_hidpi_factor(&self.0) as _
-    }
-}
-
-fn run_ui(app: Arc<App>, dispatch: Box<Fn(Action)>) {
+use azul::{prelude::*, widgets::{label::Label, button::Button}};
+fn run_ui(app: Arc<AppSt>, dispatch: Box<Fn(Action)>) {
     // Trigger loading a catalog ASAP
     let action = Action::Load(ActionLoad::CatalogGrouped { extra: vec![] });
     dispatch(action);
 
-    // Builder for window
-    let builder = glutin::WindowBuilder::new()
-        .with_title("Stremio Example UI")
-        .with_dimensions((WIN_W, WIN_H).into());
+    let mut app = App::new(DataModel { counter: 0 }, AppConfig::default()).unwrap();
+    let window = app.create_window(WindowCreateOptions::default(), css::native()).unwrap();
+    app.run(window).unwrap();
+}
 
-    let context = glutin::ContextBuilder::new().with_multisampling(4);
+struct DataModel {
+  counter: usize,
+}
 
-    let mut events_loop = winit::EventsLoop::new();
+impl Layout for DataModel {
+    fn layout(&self, _info: LayoutInfo<Self>) -> Dom<Self> {
+        let label = Label::new(format!("{}", self.counter)).dom();
+        let button = Button::with_label("Update counter").dom()
+            .with_callback(On::MouseUp, Callback(update_counter));
 
-    // Initialize gfx things
-    let (window, mut device, mut factory, rtv, _) = gfx_window_glutin::init::<
-        conrod_gfx::ColorFormat,
-        DepthFormat,
-    >(builder, context, &events_loop)
-    .unwrap();
-    let mut encoder: gfx::Encoder<_, _> = factory.create_command_buffer().into();
-
-    let mut renderer =
-        conrod_gfx::Renderer::new(&mut factory, &rtv, window.get_hidpi_factor() as f64).unwrap();
-
-    // Create UI and Ids of widgets to instantiate
-    let mut ui = conrod_core::UiBuilder::new([WIN_W as f64, WIN_H as f64]).build();
-
-    // load the font
-    ui.fonts
-        .insert_from_file("./assets/fonts/NotoSans-Regular.ttf")
-        .unwrap();
-
-    // Generate the widget identifiers.
-    widget_ids!(struct Ids { canvas, list });
-    let ids = Ids::new(ui.widget_id_generator());
-
-    let image_map = conrod_core::image::Map::new();
-
-    let mut last_tick;
-
-    'main: loop {
-        last_tick = Instant::now();
-
-        let mut should_quit = false;
-        events_loop.poll_events(|event| {
-            // Convert winit event to conrod event, requires conrod to be built with the `winit` feature
-            if let Some(event) =
-                conrod_winit::convert_event(event.clone(), &WindowRef(window.window()))
-            {
-                ui.handle_event(event);
-            }
-
-            // Close window if the exit button is pressed
-            if let winit::Event::WindowEvent { event, .. } = event {
-                match event {
-                    winit::WindowEvent::CloseRequested => should_quit = true,
-                    winit::WindowEvent::Resized(logical_size) => {
-                        let hidpi_factor = window.get_hidpi_factor();
-                        let physical_size = logical_size.to_physical(hidpi_factor);
-                        window.resize(physical_size);
-                        let (new_color, _) = gfx_window_glutin::new_views::<
-                            conrod_gfx::ColorFormat,
-                            DepthFormat,
-                        >(&window);
-                        renderer.on_resize(new_color);
-                    }
-                    _ => {}
-                }
-            }
-        });
-        if should_quit {
-            break 'main;
-        }
-
-        // If the window is closed, this will be None for one tick, so to avoid panicking with
-        // unwrap, instead break the loop
-        let (win_w, win_h): (u32, u32) = match window.get_inner_size() {
-            Some(s) => s.into(),
-            None => break 'main,
-        };
-
-        // Draw if anything has changed
-        if let Some(primitives) = ui.draw_if_changed() {
-            let dpi_factor = window.get_hidpi_factor() as f32;
-            let dims = (win_w as f32 * dpi_factor, win_h as f32 * dpi_factor);
-
-            //Clear the window
-            renderer.clear(&mut encoder, CLEAR_COLOR);
-
-            renderer.fill(
-                &mut encoder,
-                dims,
-                dpi_factor as f64,
-                primitives,
-                &image_map,
-            );
-
-            renderer.draw(&mut factory, &mut encoder, &image_map);
-
-            encoder.flush(&mut device);
-            window.swap_buffers().unwrap();
-            device.cleanup();
-        }
-
-        // Update widgets if any event has happened
-        if ui.global_input().events().next().is_some() || app.is_dirty.load(Ordering::Relaxed) {
-            let ui = &mut ui.set_widgets();
-
-            widget::Canvas::new()
-                .color(conrod_core::color::DARK_CHARCOAL)
-                .set(ids.canvas, ui);
-
-            let container = app.container.0.lock().expect("unable to lock app from ui");
-
-            let (mut groups_items, scrollbar) = widget::List::flow_down(container.groups.len())
-                .item_size(50.0)
-                .scrollbar_on_top()
-                .middle_of(ids.canvas)
-                .wh_of(ids.canvas)
-                .set(ids.list, ui);
-            while let Some(group_item) = groups_items.next(ui) {
-                let group = &container.groups[group_item.i];
-                if let Loadable::Ready(meta_items) = &group.1 {
-                    // @TODO: calculate dynamically
-                    let to_render_count = std::cmp::min(8, meta_items.len());
-                    let group_list = widget::List::flow_right(to_render_count)
-                        .item_size(80.0);
-                    let (mut items, _) = group_item.set(group_list, ui);
-                    while let Some(item) = items.next(ui) {
-                        let meta_item = &meta_items[item.i];
-                        let toggle = widget::Toggle::new(false)
-                            .label(&meta_item.name)
-                            .label_color(conrod_core::color::WHITE)
-                            .color(conrod_core::color::LIGHT_PURPLE);
-                        for _v in item.set(toggle, ui) {
-                            let action = Action::Load(ActionLoad::CatalogGrouped { extra: vec![] });
-                            dispatch(action);
-                        };
-                    }
-                } else {
-                    let label = format!(
-                        "{}",
-                        match &group.1 {
-                            Loadable::Loading => "loading",
-                            Loadable::Message(ref m) => m,
-                            Loadable::ReadyEmpty => "empty",
-                            _ => "unknown"
-                        }
-                    );
-                    let toggle = widget::Toggle::new(false)
-                        .label(&label)
-                        .label_color(conrod_core::color::WHITE)
-                        .color(conrod_core::color::LIGHT_BLUE);
-                    group_item.set(toggle, ui);
-                }
-            }
-            if let Some(s) = scrollbar {
-                s.set(ui)
-            };
-
-            app.is_dirty.store(false, Ordering::Relaxed);
-        }
-
-        // Only tick each FRAME_MILLIS; wait if we're faster than that
-        let to_wait = Duration::from_millis(FRAME_MILLIS)
-            .checked_sub(last_tick.elapsed())
-            .unwrap_or(Duration::new(0, 0));
-        thread::sleep(to_wait);
+        Dom::div()
+            .with_child(label)
+            .with_child(button)
     }
+}
+
+fn update_counter(app_state: &mut AppState<DataModel>, _: &mut CallbackInfo<DataModel>) -> UpdateScreen {
+    app_state.data.modify(|state| state.counter += 1)?;
+    Redraw
 }
 
 // Define the environment
