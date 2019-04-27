@@ -1,18 +1,18 @@
 use enclose::*;
 use futures::future::lazy;
-use futures::{future, Future};
+use futures::{future, Future, Sink, Stream};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use std::ops::Deref;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::channel;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use stremio_state_ng::middlewares::*;
 use stremio_state_ng::state_types::*;
 use tokio::executor::current_thread::spawn;
-use tokio::runtime::current_thread::run;
+use tokio::runtime::current_thread::{Runtime, Handle};
+use futures::sync::mpsc::{channel, Sender};
 
 // for now, we will spawn conrod in a separate thread and communicate via channels
 // otherwise, we may find a better solution here:
@@ -51,9 +51,9 @@ struct App {
     is_dirty: AtomicBool,
 }
 
-fn main() {
-    let (tx, rx) = channel();
+const MAX_ACTION_BUFFER: usize = 1024;
 
+fn main() {
     let container = Arc::new(ContainerHolder::new(CatalogGrouped::new()));
 
     let app = Arc::new(App {
@@ -65,7 +65,7 @@ fn main() {
     enum ContainerId {
         Board,
     };
-    let muxer = Rc::new(ContainerMuxer::new(
+    let muxer = Arc::new(ContainerMuxer::new(
         vec![
             Box::new(ContextMiddleware::<Env>::new()),
             Box::new(AddonsMiddleware::<Env>::new()),
@@ -81,21 +81,25 @@ fn main() {
             //eventTx.send(ev).map_err(|_| ());
         })),
     ));
+    
+    // create the runtime and use the handle
+    let mut runtime = Runtime::new().expect("failed to create runtime");
+    let handle = runtime.handle();
+    
+    // Actions channel
+    let (tx, rx) = channel(MAX_ACTION_BUFFER);
 
     // Spawn the UI
-    let ui_thread = thread::spawn(enclose!((app) || run_ui(app, tx)));
+    let ui_thread = thread::spawn(enclose!((app) || run_ui(app, handle, tx)));
 
-    // @TODO: this here is not right,
-    // cause we won't be able to react to any new actions while we're still processing the last one
-    // to fix it, turn the rx.recv() into a stream and give that stream to the executor
-    while let Ok(action) = rx.recv() {
-        run(lazy(enclose!((muxer) move || {
-            muxer.dispatch(&action);
-            future::ok(())
-        })));
-    }
+    runtime.spawn(rx.for_each(enclose!((muxer) move |action| {
+        muxer.dispatch(&action);
+        future::ok(())
+    })));
 
-    ui_thread.join().unwrap();
+    // Run the tokio event loop and then wait for the ui_thread to finish
+    runtime.run().expect("failed running tokio runtime");
+    ui_thread.join().expect("failed joining ui_thread");
 }
 
 const WIN_H: u32 = 600;
@@ -126,10 +130,10 @@ impl<'a> conrod_winit::WinitWindow for WindowRef<'a> {
     }
 }
 
-fn run_ui(app: Arc<App>, tx: std::sync::mpsc::Sender<Action>) {
+fn run_ui(app: Arc<App>, handle: Handle, tx: Sender<Action>) {
     // Trigger loading a catalog ASAP
     let action = Action::Load(ActionLoad::CatalogGrouped { extra: vec![] });
-    tx.send(action).expect("failed sending action");
+    handle.spawn(tx.clone().send(action).map(|_| ()).map_err(|_| ()));
 
     // Builder for window
     let builder = glutin::WindowBuilder::new()
