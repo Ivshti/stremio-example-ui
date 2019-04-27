@@ -250,7 +250,7 @@ fn run_ui(app: Arc<App>, dispatch: Box<Fn(Action)>) {
                 .set(ids.list, ui);
             while let Some(group_item) = groups_items.next(ui) {
                 let group = &container.groups[group_item.i];
-                if let Loadable::Ready(meta_items) = &group.1 {
+                /*if let Loadable::Ready(meta_items) = &group.1 {
                     // @TODO: calculate dynamically
                     let to_render_count = std::cmp::min(8, meta_items.len());
                     let group_list = widget::List::flow_right(to_render_count)
@@ -268,21 +268,19 @@ fn run_ui(app: Arc<App>, dispatch: Box<Fn(Action)>) {
                         };
                     }
                 } else {
-                    let label = format!(
-                        "{}",
-                        match &group.1 {
-                            Loadable::Loading => "loading",
-                            Loadable::Message(ref m) => m,
-                            Loadable::ReadyEmpty => "empty",
-                            _ => "unknown"
-                        }
-                    );
+                */
+                    let label = match &group.1 {
+                        Loadable::Loading => "loading".to_owned(),
+                        Loadable::Message(ref m) => m.to_owned(),
+                        Loadable::Ready(i) => format!("items: {}", i.len()),
+                        Loadable::ReadyEmpty => "empty".to_owned(),
+                    };
                     let toggle = widget::Toggle::new(false)
                         .label(&label)
                         .label_color(conrod_core::color::WHITE)
                         .color(conrod_core::color::LIGHT_BLUE);
                     group_item.set(toggle, ui);
-                }
+                //}
             }
             if let Some(s) = scrollbar {
                 s.set(ui)
