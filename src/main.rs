@@ -1,4 +1,5 @@
 use enclose::*;
+use futures::sync::mpsc::channel;
 use futures::{future, Future, Sink, Stream};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -10,8 +11,7 @@ use std::thread;
 use stremio_state_ng::middlewares::*;
 use stremio_state_ng::state_types::*;
 use tokio::executor::current_thread::spawn;
-use tokio::runtime::current_thread::{Runtime, Handle};
-use futures::sync::mpsc::{channel, Sender};
+use tokio::runtime::current_thread::Runtime;
 
 // for now, we will spawn conrod in a separate thread and communicate via channels
 // otherwise, we may find a better solution here:
@@ -77,19 +77,23 @@ fn main() {
             if let Event::NewState(ContainerId::Board) = ev {
                 app.is_dirty.store(true, Ordering::Relaxed);
             }
-            //eventTx.send(ev).map_err(|_| ());
         })),
     ));
-    
+
     // create the runtime and use the handle
     let mut runtime = Runtime::new().expect("failed to create runtime");
     let handle = runtime.handle();
-    
+
     // Actions channel
     let (tx, rx) = channel(MAX_ACTION_BUFFER);
 
     // Spawn the UI
-    let ui_thread = thread::spawn(enclose!((app) || run_ui(app, handle, tx)));
+    let dispatch = Box::new(move |action| {
+        handle
+            .spawn(tx.clone().send(action).map(|_| ()).map_err(|_| ()))
+            .expect("failed sending action");
+    });
+    let ui_thread = thread::spawn(enclose!((app) || run_ui(app, dispatch)));
 
     runtime.spawn(rx.for_each(enclose!((muxer) move |action| {
         muxer.dispatch(&action);
@@ -129,10 +133,10 @@ impl<'a> conrod_winit::WinitWindow for WindowRef<'a> {
     }
 }
 
-fn run_ui(app: Arc<App>, handle: Handle, tx: Sender<Action>) {
+fn run_ui(app: Arc<App>, dispatch: Box<Fn(Action)>) {
     // Trigger loading a catalog ASAP
     let action = Action::Load(ActionLoad::CatalogGrouped { extra: vec![] });
-    handle.spawn(tx.clone().send(action).map(|_| ()).map_err(|_| ())).expect("failed spawning");
+    dispatch(action);
 
     // Builder for window
     let builder = glutin::WindowBuilder::new()
@@ -234,12 +238,13 @@ fn run_ui(app: Arc<App>, handle: Handle, tx: Sender<Action>) {
             device.cleanup();
         }
 
-
         // Update widgets if any event has happened
         if ui.global_input().events().next().is_some() || app.is_dirty.load(Ordering::Relaxed) {
             let ui = &mut ui.set_widgets();
 
-            widget::Canvas::new().color(conrod_core::color::DARK_CHARCOAL).set(ids.canvas, ui);
+            widget::Canvas::new()
+                .color(conrod_core::color::DARK_CHARCOAL)
+                .set(ids.canvas, ui);
 
             let container = app.container.0.lock().expect("unable to lock app from ui");
 
@@ -251,17 +256,23 @@ fn run_ui(app: Arc<App>, handle: Handle, tx: Sender<Action>) {
                 .set(ids.list, ui);
             while let Some(item) = items.next(ui) {
                 let group = &container.groups[item.i];
-                let label = format!("{}", match &group.1 {
-                    Loadable::Loading => "loading",
-                    Loadable::Ready(_) => "ready",
-                    Loadable::Message(ref m) => m,
-                    Loadable::ReadyEmpty => "empty",
-                });
+                let label = format!(
+                    "{}",
+                    match &group.1 {
+                        Loadable::Loading => "loading",
+                        Loadable::Ready(_) => "ready",
+                        Loadable::Message(ref m) => m,
+                        Loadable::ReadyEmpty => "empty",
+                    }
+                );
                 let toggle = widget::Toggle::new(false)
                     .label(&label)
                     .label_color(conrod_core::color::WHITE)
                     .color(conrod_core::color::LIGHT_BLUE);
-                item.set(toggle, ui);
+                for _v in item.set(toggle, ui) {
+                    let action = Action::Load(ActionLoad::CatalogGrouped { extra: vec![] });
+                    dispatch(action);
+                }
             }
             /*
             let count = container
@@ -282,7 +293,9 @@ fn run_ui(app: Arc<App>, handle: Handle, tx: Sender<Action>) {
                 tx.send(action).expect("failed sending action");
             }
             */
-            if let Some(s) = scrollbar { s.set(ui) };
+            if let Some(s) = scrollbar {
+                s.set(ui)
+            };
 
             app.is_dirty.store(false, Ordering::Relaxed);
         }
