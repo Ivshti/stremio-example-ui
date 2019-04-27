@@ -167,36 +167,6 @@ fn run_ui(app: Arc<App>, tx: std::sync::mpsc::Sender<Action>) {
     'main: loop {
         last_tick = Instant::now();
 
-        // If the window is closed, this will be None for one tick, so to avoid panicking with
-        // unwrap, instead break the loop
-        let (win_w, win_h): (u32, u32) = match window.get_inner_size() {
-            Some(s) => s.into(),
-            None => break 'main,
-        };
-
-        let dpi_factor = window.get_hidpi_factor() as f32;
-
-        if let Some(primitives) = ui.draw_if_changed() {
-            let dims = (win_w as f32 * dpi_factor, win_h as f32 * dpi_factor);
-
-            //Clear the window
-            renderer.clear(&mut encoder, CLEAR_COLOR);
-
-            renderer.fill(
-                &mut encoder,
-                dims,
-                dpi_factor as f64,
-                primitives,
-                &image_map,
-            );
-
-            renderer.draw(&mut factory, &mut encoder, &image_map);
-
-            encoder.flush(&mut device);
-            window.swap_buffers().unwrap();
-            device.cleanup();
-        }
-
         let mut should_quit = false;
         events_loop.poll_events(|event| {
             // Convert winit event to conrod event, requires conrod to be built with the `winit` feature
@@ -227,6 +197,37 @@ fn run_ui(app: Arc<App>, tx: std::sync::mpsc::Sender<Action>) {
         if should_quit {
             break 'main;
         }
+
+        // If the window is closed, this will be None for one tick, so to avoid panicking with
+        // unwrap, instead break the loop
+        let (win_w, win_h): (u32, u32) = match window.get_inner_size() {
+            Some(s) => s.into(),
+            None => break 'main,
+        };
+
+        // Draw if anything has changed
+        if let Some(primitives) = ui.draw_if_changed() {
+            let dpi_factor = window.get_hidpi_factor() as f32;
+            let dims = (win_w as f32 * dpi_factor, win_h as f32 * dpi_factor);
+
+            //Clear the window
+            renderer.clear(&mut encoder, CLEAR_COLOR);
+
+            renderer.fill(
+                &mut encoder,
+                dims,
+                dpi_factor as f64,
+                primitives,
+                &image_map,
+            );
+
+            renderer.draw(&mut factory, &mut encoder, &image_map);
+
+            encoder.flush(&mut device);
+            window.swap_buffers().unwrap();
+            device.cleanup();
+        }
+
 
         // Update widgets if any event has happened
         if ui.global_input().events().next().is_some() || app.is_dirty.load(Ordering::Relaxed) {
