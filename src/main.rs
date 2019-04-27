@@ -1,5 +1,4 @@
 use enclose::*;
-use futures::future::lazy;
 use futures::{future, Future, Sink, Stream};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -65,7 +64,7 @@ fn main() {
     enum ContainerId {
         Board,
     };
-    let muxer = Arc::new(ContainerMuxer::new(
+    let muxer = Rc::new(ContainerMuxer::new(
         vec![
             Box::new(ContextMiddleware::<Env>::new()),
             Box::new(AddonsMiddleware::<Env>::new()),
@@ -133,7 +132,7 @@ impl<'a> conrod_winit::WinitWindow for WindowRef<'a> {
 fn run_ui(app: Arc<App>, handle: Handle, tx: Sender<Action>) {
     // Trigger loading a catalog ASAP
     let action = Action::Load(ActionLoad::CatalogGrouped { extra: vec![] });
-    handle.spawn(tx.clone().send(action).map(|_| ()).map_err(|_| ()));
+    handle.spawn(tx.clone().send(action).map(|_| ()).map_err(|_| ())).expect("failed spawning");
 
     // Builder for window
     let builder = glutin::WindowBuilder::new()
