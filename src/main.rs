@@ -10,6 +10,8 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use stremio_state_ng::middlewares::*;
 use stremio_state_ng::state_types::*;
+use stremio_state_ng::types::MetaPreview;
+use stremio_state_ng::types::addons::{ResourceRef, ResourceRequest};
 use tokio::executor::current_thread::spawn;
 use tokio::runtime::current_thread::run;
 
@@ -23,10 +25,10 @@ use tokio::runtime::current_thread::run;
 // * decide the cache/storage layer; perhaps paritydb
 // * cache, images
 
-struct ContainerHolder(Mutex<CatalogGrouped>);
+struct ContainerHolder(Mutex<CatalogFiltered>);
 
 impl ContainerHolder {
-    pub fn new(container: CatalogGrouped) -> Self {
+    pub fn new(container: CatalogFiltered) -> Self {
         ContainerHolder(Mutex::new(container))
     }
 }
@@ -55,7 +57,7 @@ struct App {
 const MAX_ACTION_BUFFER: usize = 1024;
 
 fn main() {
-    let container = Arc::new(ContainerHolder::new(CatalogGrouped::new()));
+    let container = Arc::new(ContainerHolder::new(CatalogFiltered::new()));
 
     let app = Arc::new(App {
         container: container.clone(),
@@ -65,6 +67,7 @@ fn main() {
     #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
     enum ContainerId {
         Board,
+        Discover,
     };
     let muxer = Rc::new(ContainerMuxer::new(
         vec![
@@ -72,11 +75,11 @@ fn main() {
             Box::new(AddonsMiddleware::<Env>::new()),
         ],
         vec![(
-            ContainerId::Board,
+            ContainerId::Discover,
             container.clone() as Arc<dyn ContainerInterface>,
         )],
         Box::new(enclose!((app) move |ev| {
-            if let Event::NewState(ContainerId::Board) = ev {
+            if let Event::NewState(_) = ev {
                 app.is_dirty.store(true, Ordering::Relaxed);
             }
         })),
@@ -102,7 +105,7 @@ fn main() {
 const WIN_H: u32 = 600;
 const WIN_W: u32 = 1000;
 use conrod_core::widget_ids;
-use conrod_core::{widget, Colorable, Positionable, Sizeable, Widget};
+use conrod_core::{widget, Colorable, Positionable, Labelable, Sizeable, Widget};
 use gfx::Device;
 use std::time::{Duration, Instant};
 
@@ -129,7 +132,11 @@ impl<'a> conrod_winit::WinitWindow for WindowRef<'a> {
 
 fn run_ui(app: Arc<App>, dispatch: Box<Fn(Action)>) {
     // Trigger loading a catalog ASAP
-    let action = Action::Load(ActionLoad::CatalogGrouped { extra: vec![] });
+    let resource_req = ResourceRequest {
+        transport_url: "https://v3-cinemeta.strem.io/manifest.json".to_owned(),
+        resource_ref: ResourceRef::without_extra("catalog", "movie", "top"),
+    };
+    let action = Action::Load(ActionLoad::CatalogFiltered { resource_req });
     dispatch(action);
 
     // Builder for window
@@ -242,18 +249,28 @@ fn run_ui(app: Arc<App>, dispatch: Box<Fn(Action)>) {
 
             let container = app.container.0.lock().expect("unable to lock app from ui");
 
-            let (mut groups_items, scrollbar) = widget::List::flow_down(container.groups.len())
+            let items: Vec<&MetaPreview> = container
+                .item_pages
+                .iter()
+                .filter_map(|g| match g {
+                    Loadable::Ready(i) => Some(i),
+                    _ => None
+                })
+                .flatten()
+                .collect();
+            let (mut list_items, scrollbar) = widget::List::flow_down(items.len())
                 .item_size(50.0)
                 .scrollbar_on_top()
                 .middle_of(ids.canvas)
                 .wh_of(ids.canvas)
                 .set(ids.list, ui);
-            while let Some(group_item) = groups_items.next(ui) {
-                let group = &container.groups[group_item.i];
+            while let Some(list_item) = list_items.next(ui) {
+                let item = &items[list_item.i];
 
-                let g = self::catalog_group::CatalogGroup::new(&group)
+                let g = widget::Button::new()
+                    .label(&item.name)
                     .color(conrod_core::color::LIGHT_BLUE);
-                group_item.set(g, ui);
+                list_item.set(g, ui);
             }
             if let Some(s) = scrollbar {
                 s.set(ui)
@@ -269,141 +286,6 @@ fn run_ui(app: Arc<App>, dispatch: Box<Fn(Action)>) {
         thread::sleep(to_wait);
     }
 }
-
-
-#[macro_use] extern crate conrod_core;
-// CatalogGroup
-mod catalog_group {
-    use conrod_core::{self, widget_ids, widget, Colorable, Labelable, Point, Widget};
-    use stremio_state_ng::types::MetaPreview;
-    use stremio_state_ng::types::addons::ResourceRequest;
-    use stremio_state_ng::state_types::{Loadable, Message};
-   
-    type Group = (ResourceRequest, Loadable<Vec<MetaPreview>, Message>);
-
-    #[derive(WidgetCommon)]
-    pub struct CatalogGroup<'a> {
-        /// An object that handles some of the dirty work of rendering a GUI. We don't
-        /// really have to worry about it.
-        #[conrod(common_builder)]
-        common: widget::CommonBuilder,
-        /// Optional label string for the button.
-        group: &'a Group,
-        /// See the Style struct below.
-        style: Style,
-    }
-
-    #[derive(Copy, Clone, Debug, Default, PartialEq, WidgetStyle)]
-    pub struct Style {
-        /// Color of the button's label.
-        #[conrod(default = "theme.shape_color")]
-        pub color: Option<conrod_core::Color>,
-    }
-
-    widget_ids! {
-        struct Ids {
-            button,
-            list,
-        }
-    }
-
-    pub struct State {
-        ids: Ids,
-    }
-
-    impl<'a> CatalogGroup<'a> {
-        /// Create a button context to be built upon.
-        pub fn new(group: &'a Group) -> Self {
-            CatalogGroup {
-                common: widget::CommonBuilder::default(),
-                style: Style::default(),
-                group,
-            }
-        }
-    }
-
-    
-    /// A custom Conrod widget must implement the Widget trait. See the **Widget** trait
-    /// documentation for more details.
-    impl<'a> Widget for CatalogGroup<'a> {
-        /// The State struct that we defined above.
-        type State = State;
-        /// The Style struct that we defined using the `widget_style!` macro.
-        type Style = Style;
-        /// The event produced by instantiating the widget.
-        ///
-        /// `Some` when clicked, otherwise `None`.
-        type Event = Option<()>;
-
-        fn init_state(&self, id_gen: widget::id::Generator) -> Self::State {
-            State { ids: Ids::new(id_gen) }
-        }
-
-        fn style(&self) -> Self::Style {
-            self.style.clone()
-        }
-
-        fn is_over(&self) -> widget::IsOverFn {
-            use conrod_core::graph::Container;
-            use conrod_core::Theme;
-            fn is_over_widget(widget: &Container, _: Point, _: &Theme) -> widget::IsOver {
-                let unique = widget.state_and_style::<State, Style>().unwrap();
-                unique.state.ids.button.into()
-            }
-            is_over_widget
-        }
-
-        /// Update the state of the button by handling any input that has occurred since the last
-        /// update.
-        fn update(self, args: widget::UpdateArgs<Self>) -> Self::Event {
-            let widget::UpdateArgs { id, state, ui, style, .. } = args;
-
-            let label = match &self.group.1 {
-                Loadable::Loading => "loading".to_owned(),
-                Loadable::Message(ref m) => m.to_owned(),
-                Loadable::Ready(i) => format!("items: {}", i.len()),
-                Loadable::ReadyEmpty => "empty".to_owned(),
-            };
-            let button = widget::Button::new()
-                .label(&label)
-                .label_color(conrod_core::color::WHITE)
-                .color(style.color(&ui.theme))
-                .set(state.ids.button, ui);
-            /*
-            if let Loadable::Ready(meta_items) = &self.group.1 {
-                // @TODO: calculate dynamically
-                let to_render_count = std::cmp::min(8, meta_items.len());
-                let (mut items, _) = widget::List::flow_right(to_render_count)
-                    .item_size(60.0)
-                    .set(state.ids.list, ui);
-                while let Some(item) = items.next(ui) {
-                    let meta_item = &meta_items[item.i];
-                    let button = widget::Button::new()
-                        .label(&meta_item.name)
-                        .label_color(conrod_core::color::WHITE)
-                        .color(style.color(&ui.theme));
-                    item.set(button, ui);
-                    //for _v in item.set(toggle, ui) {
-                    //    let action = Action::Load(ActionLoad::CatalogGrouped { extra: vec![] });
-                    //    dispatch(action);
-                    //};
-                }
-            }
-            */
-            ui.widget_input(id).clicks().left().next().map(|_| ()) 
-        }
-
-    }
-
-    /// Provide the chainable color() configuration method.
-    impl<'a> Colorable for CatalogGroup<'a> {
-        fn color(mut self, color: conrod_core::Color) -> Self {
-            self.style.color = Some(color);
-            self
-        }
-    }
-}
-
 
 // Define the environment
 struct Env {}
