@@ -62,7 +62,7 @@ fn main() {
         is_dirty: AtomicBool::new(false),
     });
 
-    #[derive(Debug, Clone)]
+    #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
     enum ContainerId {
         Board,
     };
@@ -358,7 +358,7 @@ mod catalog_group {
         fn update(self, args: widget::UpdateArgs<Self>) -> Self::Event {
             let widget::UpdateArgs { id, state, ui, style, .. } = args;
 
-            /*let label = match &self.group.1 {
+            let label = match &self.group.1 {
                 Loadable::Loading => "loading".to_owned(),
                 Loadable::Message(ref m) => m.to_owned(),
                 Loadable::Ready(i) => format!("items: {}", i.len()),
@@ -369,7 +369,7 @@ mod catalog_group {
                 .label_color(conrod_core::color::WHITE)
                 .color(style.color(&ui.theme))
                 .set(state.ids.button, ui);
-            */
+            /*
             if let Loadable::Ready(meta_items) = &self.group.1 {
                 // @TODO: calculate dynamically
                 let to_render_count = std::cmp::min(8, meta_items.len());
@@ -388,7 +388,8 @@ mod catalog_group {
                     //    dispatch(action);
                     //};
                 }
-            } 
+            }
+            */
             ui.widget_input(id).clicks().left().next().map(|_| ()) 
         }
 
