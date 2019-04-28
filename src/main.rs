@@ -102,7 +102,7 @@ fn main() {
 const WIN_H: u32 = 600;
 const WIN_W: u32 = 1000;
 use conrod_core::widget_ids;
-use conrod_core::{widget, Colorable, Labelable, Positionable, Sizeable, Widget};
+use conrod_core::{widget, Colorable, Positionable, Sizeable, Widget};
 use gfx::Device;
 use std::time::{Duration, Instant};
 
@@ -250,37 +250,10 @@ fn run_ui(app: Arc<App>, dispatch: Box<Fn(Action)>) {
                 .set(ids.list, ui);
             while let Some(group_item) = groups_items.next(ui) {
                 let group = &container.groups[group_item.i];
-                /*if let Loadable::Ready(meta_items) = &group.1 {
-                    // @TODO: calculate dynamically
-                    let to_render_count = std::cmp::min(8, meta_items.len());
-                    let group_list = widget::List::flow_right(to_render_count)
-                        .item_size(80.0);
-                    let (mut items, _) = group_item.set(group_list, ui);
-                    while let Some(item) = items.next(ui) {
-                        let meta_item = &meta_items[item.i];
-                        let toggle = widget::Toggle::new(false)
-                            .label(&meta_item.name)
-                            .label_color(conrod_core::color::WHITE)
-                            .color(conrod_core::color::LIGHT_PURPLE);
-                        for _v in item.set(toggle, ui) {
-                            let action = Action::Load(ActionLoad::CatalogGrouped { extra: vec![] });
-                            dispatch(action);
-                        };
-                    }
-                } else {
-                */
-                    let label = match &group.1 {
-                        Loadable::Loading => "loading".to_owned(),
-                        Loadable::Message(ref m) => m.to_owned(),
-                        Loadable::Ready(i) => format!("items: {}", i.len()),
-                        Loadable::ReadyEmpty => "empty".to_owned(),
-                    };
-                    let toggle = widget::Toggle::new(false)
-                        .label(&label)
-                        .label_color(conrod_core::color::WHITE)
-                        .color(conrod_core::color::LIGHT_BLUE);
-                    group_item.set(toggle, ui);
-                //}
+
+                let g = self::catalog_group::CatalogGroup::new(&group)
+                    .color(conrod_core::color::LIGHT_BLUE);
+                group_item.set(g, ui);
             }
             if let Some(s) = scrollbar {
                 s.set(ui)
@@ -296,6 +269,140 @@ fn run_ui(app: Arc<App>, dispatch: Box<Fn(Action)>) {
         thread::sleep(to_wait);
     }
 }
+
+
+#[macro_use] extern crate conrod_core;
+// CatalogGroup
+mod catalog_group {
+    use conrod_core::{self, widget_ids, widget, Colorable, Labelable, Point, Widget};
+    use stremio_state_ng::types::MetaPreview;
+    use stremio_state_ng::types::addons::ResourceRequest;
+    use stremio_state_ng::state_types::{Loadable, Message};
+   
+    type Group = (ResourceRequest, Loadable<Vec<MetaPreview>, Message>);
+
+    #[derive(WidgetCommon)]
+    pub struct CatalogGroup<'a> {
+        /// An object that handles some of the dirty work of rendering a GUI. We don't
+        /// really have to worry about it.
+        #[conrod(common_builder)]
+        common: widget::CommonBuilder,
+        /// Optional label string for the button.
+        group: &'a Group,
+        /// See the Style struct below.
+        style: Style,
+    }
+
+    #[derive(Copy, Clone, Debug, Default, PartialEq, WidgetStyle)]
+    pub struct Style {
+        /// Color of the button's label.
+        #[conrod(default = "theme.shape_color")]
+        pub color: Option<conrod_core::Color>,
+    }
+
+    widget_ids! {
+        struct Ids {
+            button,
+            list,
+        }
+    }
+
+    pub struct State {
+        ids: Ids,
+    }
+
+    impl<'a> CatalogGroup<'a> {
+        /// Create a button context to be built upon.
+        pub fn new(group: &'a Group) -> Self {
+            CatalogGroup {
+                common: widget::CommonBuilder::default(),
+                style: Style::default(),
+                group,
+            }
+        }
+    }
+
+    
+    /// A custom Conrod widget must implement the Widget trait. See the **Widget** trait
+    /// documentation for more details.
+    impl<'a> Widget for CatalogGroup<'a> {
+        /// The State struct that we defined above.
+        type State = State;
+        /// The Style struct that we defined using the `widget_style!` macro.
+        type Style = Style;
+        /// The event produced by instantiating the widget.
+        ///
+        /// `Some` when clicked, otherwise `None`.
+        type Event = Option<()>;
+
+        fn init_state(&self, id_gen: widget::id::Generator) -> Self::State {
+            State { ids: Ids::new(id_gen) }
+        }
+
+        fn style(&self) -> Self::Style {
+            self.style.clone()
+        }
+
+        fn is_over(&self) -> widget::IsOverFn {
+            use conrod_core::graph::Container;
+            use conrod_core::Theme;
+            fn is_over_widget(widget: &Container, _: Point, _: &Theme) -> widget::IsOver {
+                let unique = widget.state_and_style::<State, Style>().unwrap();
+                unique.state.ids.button.into()
+            }
+            is_over_widget
+        }
+
+        /// Update the state of the button by handling any input that has occurred since the last
+        /// update.
+        fn update(self, args: widget::UpdateArgs<Self>) -> Self::Event {
+            let widget::UpdateArgs { id, state, ui, style, .. } = args;
+
+            /*let label = match &self.group.1 {
+                Loadable::Loading => "loading".to_owned(),
+                Loadable::Message(ref m) => m.to_owned(),
+                Loadable::Ready(i) => format!("items: {}", i.len()),
+                Loadable::ReadyEmpty => "empty".to_owned(),
+            };
+            let button = widget::Button::new()
+                .label(&label)
+                .label_color(conrod_core::color::WHITE)
+                .color(style.color(&ui.theme))
+                .set(state.ids.button, ui);
+            */
+            if let Loadable::Ready(meta_items) = &self.group.1 {
+                // @TODO: calculate dynamically
+                let to_render_count = std::cmp::min(8, meta_items.len());
+                let (mut items, _) = widget::List::flow_right(to_render_count)
+                    .item_size(60.0)
+                    .set(state.ids.list, ui);
+                while let Some(item) = items.next(ui) {
+                    let meta_item = &meta_items[item.i];
+                    let button = widget::Button::new()
+                        .label(&meta_item.name)
+                        .label_color(conrod_core::color::WHITE)
+                        .color(style.color(&ui.theme));
+                    item.set(button, ui);
+                    //for _v in item.set(toggle, ui) {
+                    //    let action = Action::Load(ActionLoad::CatalogGrouped { extra: vec![] });
+                    //    dispatch(action);
+                    //};
+                }
+            } 
+            ui.widget_input(id).clicks().left().next().map(|_| ()) 
+        }
+
+    }
+
+    /// Provide the chainable color() configuration method.
+    impl<'a> Colorable for CatalogGroup<'a> {
+        fn color(mut self, color: conrod_core::Color) -> Self {
+            self.style.color = Some(color);
+            self
+        }
+    }
+}
+
 
 // Define the environment
 struct Env {}
