@@ -68,7 +68,7 @@ fn main() {
 
     #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
     enum ContainerId {
-        Board,
+        //Board,
         Discover,
     };
     let muxer = Rc::new(ContainerMuxer::new(
@@ -171,7 +171,8 @@ fn run_ui(app: Arc<App>, dispatch: Box<Fn(Action)>) {
     let ptr = &mut window as *mut glutin::GlWindow as *mut c_void;
     let mut mpv_builder = mpv::MpvHandlerBuilder::new()
         .expect("Error while creating MPV builder");
-    mpv_builder.try_hardware_decoding();
+    mpv_builder.try_hardware_decoding()
+        .expect("failed setting hwdec");
     let mut mpv: Box<mpv::MpvHandlerWithGl> = mpv_builder
         .build_with_gl(Some(get_proc_address), ptr)
         .expect("Error while initializing MPV with opengl");
@@ -276,7 +277,7 @@ fn run_ui(app: Arc<App>, dispatch: Box<Fn(Action)>) {
         }
 
         // Consume mpv events
-        //while let Some(_) = mpv.wait_event(0.0) {}
+        //while let Some(ev) = mpv.wait_event(0.0) {dbg!(ev);}
 
         // Update widgets if any event has happened
         if ui.global_input().events().next().is_some() || app.is_dirty.load(Ordering::Relaxed) {
