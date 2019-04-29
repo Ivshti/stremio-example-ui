@@ -138,22 +138,26 @@ use glutin::GlContext;
 use std::collections::HashMap;
 use std::cell::RefCell;
 thread_local! {
-    static ADDRS: RefCell<HashMap<String, usize>> = {
+    static ADDRS: RefCell<HashMap<usize, usize>> = {
         Default::default()
     };
 }
 unsafe extern "C" fn get_proc_address(arg: *mut c_void,
                                       name: *const c_char) -> *mut c_void {
     let arg: &glutin::GlWindow = &*(arg as *mut glutin::GlWindow);
-    let name = CStr::from_ptr(name).to_str().unwrap();
+    let name_str = CStr::from_ptr(name).to_str().unwrap();
     ADDRS.with(|map| {
         let mut map = map.borrow_mut();
-
-        match map.get(&name.to_string()) {
-            Some(e) => *e as *mut c_void,
+        let name_addr = name as usize;
+        match map.get(&name_addr) {
+            Some(e) => {
+                //dbg!("hit");
+                *e as *mut c_void
+            },
             None => {
-                let e = arg.get_proc_address(name);
-                map.insert(name.to_owned(), e as usize);
+                //dbg!("miss");
+                let e = arg.get_proc_address(name_str);
+                map.insert(name_addr, e as usize);
                 e as *mut c_void
             }
         }
