@@ -22,6 +22,7 @@ use tokio::runtime::current_thread::run;
 // TODO
 // * implement a primitive UI
 // * fix window resizing
+// * mpv https://docs.rs/glutin/0.9.2/glutin/trait.GlContext.html#tymethod.get_proc_address, https://github.com/Cobrand/mpv-rs/blob/master/examples/sdl2.rs
 // * decide the cache/storage layer; perhaps paritydb
 // * cache, images
 
@@ -130,6 +131,16 @@ impl<'a> conrod_winit::WinitWindow for WindowRef<'a> {
     }
 }
 
+use std::os::raw::{c_void,c_char};
+use std::ffi::CStr;
+use glutin::GlContext;
+unsafe extern "C" fn get_proc_address(arg: *mut c_void,
+                                      name: *const c_char) -> *mut c_void {
+    let arg: &glutin::GlWindow = &*(arg as *mut glutin::GlWindow);
+    let name = CStr::from_ptr(name).to_str().unwrap();
+    arg.get_proc_address(name) as *mut c_void
+}
+
 fn run_ui(app: Arc<App>, dispatch: Box<Fn(Action)>) {
     // Trigger loading a catalog ASAP
     let resource_req = ResourceRequest {
@@ -145,16 +156,28 @@ fn run_ui(app: Arc<App>, dispatch: Box<Fn(Action)>) {
         .with_dimensions((WIN_W, WIN_H).into());
 
     let context = glutin::ContextBuilder::new().with_multisampling(4);
-
     let mut events_loop = winit::EventsLoop::new();
 
     // Initialize gfx things
-    let (window, mut device, mut factory, rtv, _) = gfx_window_glutin::init::<
+    let (mut window, mut device, mut factory, rtv, _) = gfx_window_glutin::init::<
         conrod_gfx::ColorFormat,
         DepthFormat,
     >(builder, context, &events_loop)
     .unwrap();
     let mut encoder: gfx::Encoder<_, _> = factory.create_command_buffer().into();
+
+    // Initialize mpv
+    let ptr = &mut window as *mut glutin::GlWindow as *mut c_void;
+    let mut mpv_builder = mpv::MpvHandlerBuilder::new()
+        .expect("Error while creating MPV builder");
+    mpv_builder.try_hardware_decoding();
+    let mut mpv: Box<mpv::MpvHandlerWithGl> = mpv_builder
+        .build_with_gl(Some(get_proc_address), ptr)
+        .expect("Error while initializing MPV with opengl");
+    let video_path = "/home/ivo/storage/bbb_sunflower_1080p_30fps_normal.mp4";
+    mpv.command(&["loadfile", video_path])
+        .expect("Error loading file");
+
 
     let mut renderer =
         conrod_gfx::Renderer::new(&mut factory, &rtv, window.get_hidpi_factor() as f64).unwrap();
