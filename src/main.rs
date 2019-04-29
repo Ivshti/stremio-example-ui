@@ -255,9 +255,10 @@ fn run_ui(app: Arc<App>, dispatch: Box<Fn(Action)>) {
                 &image_map,
             );
 
-            renderer.draw(&mut factory, &mut encoder, &image_map);
+            //renderer.draw(&mut factory, &mut encoder, &image_map);
+            mpv.draw(0, win_w as i32, -(win_h as i32)).expect("Failed to draw on conrod window");
 
-            encoder.flush(&mut device);
+            //encoder.flush(&mut device);
             window.swap_buffers().unwrap();
             device.cleanup();
         }
