@@ -112,7 +112,7 @@ use std::time::{Duration, Instant};
 
 const FRAME_MILLIS: u64 = 15;
 
-const CLEAR_COLOR: [f32; 4] = [0.2, 0.2, 0.2, 1.0];
+const CLEAR_COLOR: [f32; 4] = [0.2, 0.2, 0.2, 0.5];
 
 type DepthFormat = gfx::format::DepthStencil;
 
@@ -240,10 +240,10 @@ fn run_ui(app: Arc<App>, dispatch: Box<Fn(Action)>) {
         };
 
         // Draw if anything has changed
+        let mut needs_cleanup = false;
+        let dpi_factor = window.get_hidpi_factor() as f32;
+        let dims = (win_w as f32 * dpi_factor, win_h as f32 * dpi_factor);
         if let Some(primitives) = ui.draw_if_changed() {
-            let dpi_factor = window.get_hidpi_factor() as f32;
-            let dims = (win_w as f32 * dpi_factor, win_h as f32 * dpi_factor);
-
             //Clear the window
             renderer.clear(&mut encoder, CLEAR_COLOR);
 
@@ -255,10 +255,18 @@ fn run_ui(app: Arc<App>, dispatch: Box<Fn(Action)>) {
                 &image_map,
             );
 
-            //renderer.draw(&mut factory, &mut encoder, &image_map);
-            mpv.draw(0, win_w as i32, -(win_h as i32)).expect("Failed to draw on conrod window");
+            renderer.draw(&mut factory, &mut encoder, &image_map);
 
             //encoder.flush(&mut device);
+            needs_cleanup = true;
+        }
+        // @TODO
+        let mpv_is_playing = true;
+        if mpv_is_playing {
+            mpv.draw(0, dims.0 as i32, -(dims.1 as i32)).expect("Failed to draw on conrod window");
+            needs_cleanup = true;
+        }
+        if needs_cleanup {
             window.swap_buffers().unwrap();
             device.cleanup();
         }
@@ -268,7 +276,7 @@ fn run_ui(app: Arc<App>, dispatch: Box<Fn(Action)>) {
             let ui = &mut ui.set_widgets();
 
             widget::Canvas::new()
-                .color(conrod_core::color::DARK_CHARCOAL)
+                .color(conrod_core::color::TRANSPARENT)
                 .set(ids.canvas, ui);
 
             let container = app.container.0.lock().expect("unable to lock app from ui");
@@ -293,7 +301,7 @@ fn run_ui(app: Arc<App>, dispatch: Box<Fn(Action)>) {
 
                 let g = widget::Button::new()
                     .label(&item.name)
-                    .color(conrod_core::color::LIGHT_BLUE);
+                    .color(conrod_core::Color::Rgba(138.0, 90.0, 171.0, 30.0));
                 list_item.set(g, ui);
             }
             if let Some(s) = scrollbar {
