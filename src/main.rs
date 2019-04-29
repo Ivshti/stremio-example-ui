@@ -135,11 +135,29 @@ impl<'a> conrod_winit::WinitWindow for WindowRef<'a> {
 use std::os::raw::{c_void,c_char};
 use std::ffi::CStr;
 use glutin::GlContext;
+use std::collections::HashMap;
+use std::cell::RefCell;
+thread_local! {
+    static ADDRS: RefCell<HashMap<String, usize>> = {
+        Default::default()
+    };
+}
 unsafe extern "C" fn get_proc_address(arg: *mut c_void,
                                       name: *const c_char) -> *mut c_void {
     let arg: &glutin::GlWindow = &*(arg as *mut glutin::GlWindow);
     let name = CStr::from_ptr(name).to_str().unwrap();
-    arg.get_proc_address(name) as *mut c_void
+    ADDRS.with(|map| {
+        let mut map = map.borrow_mut();
+
+        match map.get(&name.to_string()) {
+            Some(e) => *e as *mut c_void,
+            None => {
+                let e = arg.get_proc_address(name);
+                map.insert(name.to_owned(), e as usize);
+                e as *mut c_void
+            }
+        }
+    })
 }
 
 fn run_ui(app: Arc<App>, dispatch: Box<Fn(Action)>) {
