@@ -112,7 +112,7 @@ use std::time::{Duration, Instant};
 
 const FRAME_MILLIS: u64 = 15;
 
-const CLEAR_COLOR: [f32; 4] = [0.2, 0.2, 0.2, 0.5];
+//const CLEAR_COLOR: [f32; 4] = [0.2, 0.2, 0.2, 0.5];
 
 type DepthFormat = gfx::format::DepthStencil;
 
@@ -243,9 +243,18 @@ fn run_ui(app: Arc<App>, dispatch: Box<Fn(Action)>) {
         let mut needs_cleanup = false;
         let dpi_factor = window.get_hidpi_factor() as f32;
         let dims = (win_w as f32 * dpi_factor, win_h as f32 * dpi_factor);
-        if let Some(primitives) = ui.draw_if_changed() {
+
+        // @TODO set mpv_is_playing to something reasonable
+        let mpv_is_playing = true;
+        if mpv_is_playing {
+            mpv.draw(0, dims.0 as i32, -(dims.1 as i32)).expect("failed to draw on conrod window");
+            needs_cleanup = true;
+        }
+        let maybe_primitives = if mpv_is_playing { Some(ui.draw()) } else { ui.draw_if_changed() };
+        if let Some(primitives) = maybe_primitives {
             //Clear the window
-            renderer.clear(&mut encoder, CLEAR_COLOR);
+            // is this really needed?
+            //renderer.clear(&mut encoder, CLEAR_COLOR);
 
             renderer.fill(
                 &mut encoder,
@@ -257,13 +266,7 @@ fn run_ui(app: Arc<App>, dispatch: Box<Fn(Action)>) {
 
             renderer.draw(&mut factory, &mut encoder, &image_map);
 
-            //encoder.flush(&mut device);
-            needs_cleanup = true;
-        }
-        // @TODO
-        let mpv_is_playing = true;
-        if mpv_is_playing {
-            mpv.draw(0, dims.0 as i32, -(dims.1 as i32)).expect("Failed to draw on conrod window");
+            encoder.flush(&mut device);
             needs_cleanup = true;
         }
         if needs_cleanup {
@@ -301,7 +304,7 @@ fn run_ui(app: Arc<App>, dispatch: Box<Fn(Action)>) {
 
                 let g = widget::Button::new()
                     .label(&item.name)
-                    .color(conrod_core::Color::Rgba(138.0, 90.0, 171.0, 30.0));
+                    .color(conrod_core::Color::Rgba(0.45, 0.30, 0.7, 0.5));
                 list_item.set(g, ui);
             }
             if let Some(s) = scrollbar {
