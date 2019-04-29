@@ -21,8 +21,7 @@ use tokio::runtime::current_thread::run;
 
 // TODO
 // * implement a primitive UI
-// * fix window resizing
-// * mpv https://docs.rs/glutin/0.9.2/glutin/trait.GlContext.html#tymethod.get_proc_address, https://github.com/Cobrand/mpv-rs/blob/master/examples/sdl2.rs
+// * mpv: safer/better crate
 // * decide the cache/storage layer; perhaps paritydb
 // * cache, images
 
