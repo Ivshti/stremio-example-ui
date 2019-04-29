@@ -20,6 +20,8 @@ use tokio::runtime::current_thread::run;
 // https://github.com/tokio-rs/tokio-core/issues/150
 
 // TODO
+// * investigate why CPU usage keeps rising throughout the lifetime of the process, while playing a
+// video; perhaps the MPV event queue is filling up?
 // * implement a primitive UI
 // * mpv: safer/better crate
 // * decide the cache/storage layer; perhaps paritydb
@@ -272,6 +274,9 @@ fn run_ui(app: Arc<App>, dispatch: Box<Fn(Action)>) {
             window.swap_buffers().unwrap();
             device.cleanup();
         }
+
+        // Consume mpv events
+        //while let Some(_) = mpv.wait_event(0.0) {}
 
         // Update widgets if any event has happened
         if ui.global_input().events().next().is_some() || app.is_dirty.load(Ordering::Relaxed) {
