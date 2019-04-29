@@ -1,3 +1,4 @@
+#![windows_subsystem = "windows"]
 use enclose::*;
 use futures::sync::mpsc::channel;
 use futures::{future, Future, Stream};
