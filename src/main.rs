@@ -1,3 +1,4 @@
+#![windows_subsystem = "windows"]
 use enclose::*;
 use futures::sync::mpsc::channel;
 use futures::{future, Future, Stream};
@@ -8,10 +9,10 @@ use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use stremio_state_ng::middlewares::*;
-use stremio_state_ng::state_types::*;
-use stremio_state_ng::types::MetaPreview;
-use stremio_state_ng::types::addons::{ResourceRef, ResourceRequest};
+use stremio_core::middlewares::*;
+use stremio_core::state_types::*;
+use stremio_core::types::MetaPreview;
+use stremio_core::types::addons::{ResourceRef, ResourceRequest};
 use tokio::executor::current_thread::spawn;
 use tokio::runtime::current_thread::run;
 
@@ -20,10 +21,15 @@ use tokio::runtime::current_thread::run;
 // https://github.com/tokio-rs/tokio-core/issues/150
 
 // TODO
+// * investigate CPU load on windows (with mpv symbols)
+// * implement Streams (in the UI)
 // * implement a primitive UI
-// * fix window resizing
+// * mpv: safer/better crate
 // * decide the cache/storage layer; perhaps paritydb
 // * cache, images
+// * optimization: only draw when there is a new frame
+// * optimization: do not draw the UI when it's not showing (player)
+// * optimization: look into d3d11 + hw accel
 
 struct ContainerHolder(Mutex<CatalogFiltered>);
 
@@ -66,7 +72,7 @@ fn main() {
 
     #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
     enum ContainerId {
-        Board,
+        //Board,
         Discover,
     };
     let muxer = Rc::new(ContainerMuxer::new(
@@ -111,7 +117,7 @@ use std::time::{Duration, Instant};
 
 const FRAME_MILLIS: u64 = 15;
 
-const CLEAR_COLOR: [f32; 4] = [0.2, 0.2, 0.2, 1.0];
+//const CLEAR_COLOR: [f32; 4] = [0.2, 0.2, 0.2, 0.5];
 
 type DepthFormat = gfx::format::DepthStencil;
 
@@ -130,6 +136,16 @@ impl<'a> conrod_winit::WinitWindow for WindowRef<'a> {
     }
 }
 
+use std::os::raw::{c_void,c_char};
+use std::ffi::CStr;
+use glutin::GlContext;
+unsafe extern "C" fn get_proc_address(arg: *mut c_void,
+                                      name: *const c_char) -> *mut c_void {
+    let arg: &glutin::GlWindow = &*(arg as *mut glutin::GlWindow);
+    let name = CStr::from_ptr(name).to_str().unwrap();
+    arg.get_proc_address(name) as *mut c_void
+}
+
 fn run_ui(app: Arc<App>, dispatch: Box<Fn(Action)>) {
     // Trigger loading a catalog ASAP
     let resource_req = ResourceRequest {
@@ -145,16 +161,32 @@ fn run_ui(app: Arc<App>, dispatch: Box<Fn(Action)>) {
         .with_dimensions((WIN_W, WIN_H).into());
 
     let context = glutin::ContextBuilder::new().with_multisampling(4);
-
     let mut events_loop = winit::EventsLoop::new();
 
     // Initialize gfx things
-    let (window, mut device, mut factory, rtv, _) = gfx_window_glutin::init::<
+    let (mut window, mut device, mut factory, rtv, _) = gfx_window_glutin::init::<
         conrod_gfx::ColorFormat,
         DepthFormat,
     >(builder, context, &events_loop)
     .unwrap();
     let mut encoder: gfx::Encoder<_, _> = factory.create_command_buffer().into();
+
+    // Initialize mpv
+    let ptr = &mut window as *mut glutin::GlWindow as *mut c_void;
+    let mut mpv_builder = mpv::MpvHandlerBuilder::new()
+        .expect("Error while creating MPV builder");
+    mpv_builder.try_hardware_decoding()
+        .expect("failed setting hwdec");
+    mpv_builder.set_option("terminal", "yes").expect("failed setting terminal");
+    mpv_builder.set_option("msg-level", "all=v").expect("failed setting msg-level");
+    let mut mpv: Box<mpv::MpvHandlerWithGl> = mpv_builder
+        .build_with_gl(Some(get_proc_address), ptr)
+        .expect("Error while initializing MPV with opengl");
+    //let video_path = "/home/ivo/storage/bbb_sunflower_1080p_30fps_normal.mp4";
+    let video_path = "http://distribution.bbb3d.renderfarming.net/video/mp4/bbb_sunflower_1080p_30fps_normal.mp4";
+    mpv.command(&["loadfile", video_path])
+        .expect("Error loading file");
+
 
     let mut renderer =
         conrod_gfx::Renderer::new(&mut factory, &rtv, window.get_hidpi_factor() as f64).unwrap();
@@ -217,12 +249,21 @@ fn run_ui(app: Arc<App>, dispatch: Box<Fn(Action)>) {
         };
 
         // Draw if anything has changed
-        if let Some(primitives) = ui.draw_if_changed() {
-            let dpi_factor = window.get_hidpi_factor() as f32;
-            let dims = (win_w as f32 * dpi_factor, win_h as f32 * dpi_factor);
+        let mut needs_cleanup = false;
+        let dpi_factor = window.get_hidpi_factor() as f32;
+        let dims = (win_w as f32 * dpi_factor, win_h as f32 * dpi_factor);
 
+        // @TODO set mpv_is_playing to something reasonable
+        let mpv_is_playing = true;
+        if mpv_is_playing {
+            mpv.draw(0, dims.0 as i32, -(dims.1 as i32)).expect("failed to draw on conrod window");
+            needs_cleanup = true;
+        }
+        let maybe_primitives = if mpv_is_playing { Some(ui.draw()) } else { ui.draw_if_changed() };
+        if let Some(primitives) = maybe_primitives {
             //Clear the window
-            renderer.clear(&mut encoder, CLEAR_COLOR);
+            // is this really needed?
+            //renderer.clear(&mut encoder, CLEAR_COLOR);
 
             renderer.fill(
                 &mut encoder,
@@ -235,16 +276,22 @@ fn run_ui(app: Arc<App>, dispatch: Box<Fn(Action)>) {
             renderer.draw(&mut factory, &mut encoder, &image_map);
 
             encoder.flush(&mut device);
+            needs_cleanup = true;
+        }
+        if needs_cleanup {
             window.swap_buffers().unwrap();
             device.cleanup();
         }
+
+        // Consume mpv events
+        //while let Some(ev) = mpv.wait_event(0.0) {dbg!(ev);}
 
         // Update widgets if any event has happened
         if ui.global_input().events().next().is_some() || app.is_dirty.load(Ordering::Relaxed) {
             let ui = &mut ui.set_widgets();
 
             widget::Canvas::new()
-                .color(conrod_core::color::DARK_CHARCOAL)
+                .color(conrod_core::color::TRANSPARENT)
                 .set(ids.canvas, ui);
 
             let container = app.container.0.lock().expect("unable to lock app from ui");
@@ -269,7 +316,7 @@ fn run_ui(app: Arc<App>, dispatch: Box<Fn(Action)>) {
 
                 let g = widget::Button::new()
                     .label(&item.name)
-                    .color(conrod_core::color::LIGHT_BLUE);
+                    .color(conrod_core::Color::Rgba(0.45, 0.30, 0.7, 0.5));
                 list_item.set(g, ui);
             }
             if let Some(s) = scrollbar {
