@@ -1,3 +1,4 @@
+#![windows_subsystem = "windows"]
 use enclose::*;
 use futures::sync::mpsc::channel;
 use futures::{future, Future, Stream};
@@ -181,7 +182,8 @@ fn run_ui(app: Arc<App>, dispatch: Box<Fn(Action)>) {
     let mut mpv: Box<mpv::MpvHandlerWithGl> = mpv_builder
         .build_with_gl(Some(get_proc_address), ptr)
         .expect("Error while initializing MPV with opengl");
-    let video_path = "/home/ivo/storage/bbb_sunflower_1080p_30fps_normal.mp4";
+    //let video_path = "/home/ivo/storage/bbb_sunflower_1080p_30fps_normal.mp4";
+    let video_path = "http://distribution.bbb3d.renderfarming.net/video/mp4/bbb_sunflower_1080p_30fps_normal.mp4";
     mpv.command(&["loadfile", video_path])
         .expect("Error loading file");
 
