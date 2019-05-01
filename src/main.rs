@@ -4,7 +4,6 @@ use futures::sync::mpsc::channel;
 use futures::{future, Future, Stream};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
-use std::ops::Deref;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -22,6 +21,7 @@ use tokio::runtime::current_thread::run;
 
 // TODO
 // * investigate CPU load on windows (with mpv symbols)
+// * implement storage based on sled
 // * implement Streams (in the UI)
 // * implement a primitive UI
 // * mpv: safer/better crate
@@ -335,6 +335,13 @@ fn run_ui(app: Arc<App>, dispatch: Box<Fn(Action)>) {
 }
 
 // Define the environment
+use lazy_static::*;
+use sled::Db;
+lazy_static! {
+    static ref STORAGE: sled::Db = {
+        Db::start_default("./stremio-example-ui").expect("failed to start sled")
+    };
+}
 struct Env {}
 impl Environment for Env {
     fn fetch_serde<IN, OUT>(in_req: Request<IN>) -> EnvFuture<Box<OUT>>
@@ -363,10 +370,23 @@ impl Environment for Env {
     fn exec(fut: Box<Future<Item = (), Error = ()>>) {
         spawn(fut);
     }
-    fn get_storage<T: 'static + DeserializeOwned>(_key: &str) -> EnvFuture<Option<Box<T>>> {
-        Box::new(future::ok(None))
+    fn get_storage<T: 'static + DeserializeOwned>(key: &str) -> EnvFuture<Option<Box<T>>> {
+        let opt = match STORAGE.get(key.as_bytes()) {
+            Ok(s) => s,
+            Err(e) => return Box::new(future::err(e.into())),
+        };
+        Box::new(future::ok(
+            opt.map(|v| Box::new(serde_json::from_slice(&*v).unwrap())),
+        ))
     }
-    fn set_storage<T: 'static + Serialize>(_key: &str, _value: Option<&T>) -> EnvFuture<()> {
-        Box::new(future::err("unimplemented".into()))
+    fn set_storage<T: 'static + Serialize>(key: &str, value: Option<&T>) -> EnvFuture<()> {
+        let res = match value {
+            Some(v) => STORAGE.set(key.as_bytes(), serde_json::to_string(v).unwrap().as_bytes()),
+            None => STORAGE.del(key),
+        };
+        match res {
+            Ok(_) => Box::new(future::ok(())),
+            Err(e) => Box::new(future::err(e.into())),
+        }
     }
 }
