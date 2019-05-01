@@ -339,7 +339,7 @@ use lazy_static::*;
 use sled::Db;
 lazy_static! {
     static ref STORAGE: sled::Db = {
-        Db::start_default("./stremio-example-ui").expect("failed to start sled")
+        Db::start_default("./storage-stremio-example-ui").expect("failed to start sled")
     };
 }
 struct Env {}
