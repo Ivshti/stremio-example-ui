@@ -8,10 +8,10 @@ use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use stremio_state_ng::middlewares::*;
-use stremio_state_ng::state_types::*;
-use stremio_state_ng::types::MetaPreview;
-use stremio_state_ng::types::addons::{ResourceRef, ResourceRequest};
+use stremio_core::middlewares::*;
+use stremio_core::state_types::*;
+use stremio_core::types::MetaPreview;
+use stremio_core::types::addons::{ResourceRef, ResourceRequest};
 use tokio::executor::current_thread::spawn;
 use tokio::runtime::current_thread::run;
 
@@ -20,12 +20,15 @@ use tokio::runtime::current_thread::run;
 // https://github.com/tokio-rs/tokio-core/issues/150
 
 // TODO
-// * investigate why CPU usage keeps rising throughout the lifetime of the process, while playing a
-// video; perhaps the MPV event queue is filling up?
+// * investigate CPU load on windows (with mpv symbols)
+// * implement Streams (in the UI)
 // * implement a primitive UI
 // * mpv: safer/better crate
 // * decide the cache/storage layer; perhaps paritydb
 // * cache, images
+// * optimization: only draw when there is a new frame
+// * optimization: do not draw the UI when it's not showing (player)
+// * optimization: look into d3d11 + hw accel
 
 struct ContainerHolder(Mutex<CatalogFiltered>);
 
