@@ -176,6 +176,8 @@ fn run_ui(app: Arc<App>, dispatch: Box<Fn(Action)>) {
         .expect("Error while creating MPV builder");
     mpv_builder.try_hardware_decoding()
         .expect("failed setting hwdec");
+    mpv_builder.set_option("terminal", "yes").expect("failed setting terminal");
+    mpv_builder.set_option("msg-level", "all=v").expect("failed setting msg-level");
     let mut mpv: Box<mpv::MpvHandlerWithGl> = mpv_builder
         .build_with_gl(Some(get_proc_address), ptr)
         .expect("Error while initializing MPV with opengl");
