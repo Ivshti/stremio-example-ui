@@ -15,18 +15,15 @@ use stremio_core::types::addons::{ResourceRef, ResourceRequest};
 use tokio::executor::current_thread::spawn;
 use tokio::runtime::current_thread::run;
 
-// for now, we will spawn conrod in a separate thread and communicate via channels
-// otherwise, we may find a better solution here:
-// https://github.com/tokio-rs/tokio-core/issues/150
-
 // TODO
 // * investigate CPU load on windows (with mpv symbols)
-// * implement storage based on sled
 // * implement Streams (in the UI)
 // * implement a primitive UI
+// * optimization of storage (currently sled-based): takes around 400ms to load a 1300 item lib;
+// also needs to be async
 // * mpv: safer/better crate
-// * decide the cache/storage layer; perhaps paritydb
 // * cache, images
+// * if we're gonna cache images with sled, we need to do it in a separate thread
 // * optimization: only draw when there is a new frame
 // * optimization: do not draw the UI when it's not showing (player)
 // * optimization: look into d3d11 + hw accel
