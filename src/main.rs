@@ -16,6 +16,7 @@ use tokio::executor::current_thread::spawn;
 use tokio::runtime::current_thread::run;
 
 // TODO
+// * EGL might help initializing zero-copy vaapi; see https://www.qtav.org/blog/1.9.0.html ; and EGL_EXT_image_dma_buf_import
 // * investigate CPU load on windows (with mpv symbols)
 // * implement Streams (in the UI)
 // * implement a primitive UI
@@ -37,9 +38,9 @@ impl ContainerHolder {
 }
 
 impl ContainerInterface for ContainerHolder {
-    fn dispatch(&self, action: &Action) -> bool {
+    fn dispatch(&self, msg: &Msg) -> bool {
         let mut state = self.0.lock().expect("failed to lock container");
-        match state.dispatch(action) {
+        match state.dispatch(msg) {
             Some(s) => {
                 *state = *s;
                 true
