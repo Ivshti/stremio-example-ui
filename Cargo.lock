@@ -1802,7 +1802,7 @@ dependencies = [
 [[package]]
 name = "stremio-core"
 version = "0.1.0"
-source = "git+https://github.com/stremio/stremio-core.git#84952e27beb1b29a175ecfa78b9f2ca870127080"
+source = "git+https://github.com/stremio/stremio-core.git#8dde30e7b85caf05f7cbb176d62adb5872b09ecd"
 dependencies = [
  "base64 0.10.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "chrono 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",

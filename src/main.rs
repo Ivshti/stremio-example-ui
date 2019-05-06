@@ -83,7 +83,7 @@ fn main() {
             container.clone() as Arc<dyn ContainerInterface>,
         )],
         Box::new(enclose!((app) move |ev| {
-            if let Event::NewState(_) = ev {
+            if let MuxerEvent::NewState(_) = ev {
                 app.is_dirty.store(true, Ordering::Relaxed);
             }
         })),
