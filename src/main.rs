@@ -342,7 +342,7 @@ lazy_static! {
 }
 struct Env {}
 impl Environment for Env {
-    fn fetch_serde<IN, OUT>(in_req: Request<IN>) -> EnvFuture<Box<OUT>>
+    fn fetch_serde<IN, OUT>(in_req: Request<IN>) -> EnvFuture<OUT>
     where
         IN: 'static + Serialize,
         OUT: 'static + DeserializeOwned,
@@ -361,20 +361,19 @@ impl Environment for Env {
         let fut = req
             .send()
             .and_then(|mut res: reqwest::r#async::Response| res.json::<OUT>())
-            .map(|res| Box::new(res))
             .map_err(|e| e.into());
         Box::new(fut)
     }
     fn exec(fut: Box<Future<Item = (), Error = ()>>) {
         spawn(fut);
     }
-    fn get_storage<T: 'static + DeserializeOwned>(key: &str) -> EnvFuture<Option<Box<T>>> {
+    fn get_storage<T: 'static + DeserializeOwned>(key: &str) -> EnvFuture<Option<T>> {
         let opt = match STORAGE.get(key.as_bytes()) {
             Ok(s) => s,
             Err(e) => return Box::new(future::err(e.into())),
         };
         Box::new(future::ok(
-            opt.map(|v| Box::new(serde_json::from_slice(&*v).unwrap())),
+            opt.map(|v| serde_json::from_slice(&*v).unwrap()),
         ))
     }
     fn set_storage<T: 'static + Serialize>(key: &str, value: Option<&T>) -> EnvFuture<()> {
