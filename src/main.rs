@@ -6,7 +6,7 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, RwLock};
 use std::thread;
 use stremio_core::middlewares::*;
 use stremio_core::state_types::*;
@@ -29,17 +29,17 @@ use tokio::runtime::current_thread::run;
 // * optimization: do not draw the UI when it's not showing (player)
 // * optimization: look into d3d11 + hw accel
 
-struct ContainerHolder(Mutex<CatalogFiltered>);
+struct ContainerHolder(RwLock<CatalogFiltered>);
 
 impl ContainerHolder {
     pub fn new(container: CatalogFiltered) -> Self {
-        ContainerHolder(Mutex::new(container))
+        ContainerHolder(RwLock::new(container))
     }
 }
 
 impl ContainerInterface for ContainerHolder {
     fn dispatch(&self, msg: &Msg) -> bool {
-        let mut state = self.0.lock().expect("failed to lock container");
+        let mut state = self.0.write().expect("failed to lock container");
         match state.dispatch(msg) {
             Some(s) => {
                 *state = *s;
@@ -49,7 +49,7 @@ impl ContainerInterface for ContainerHolder {
         }
     }
     fn get_state_serialized(&self) -> Result<String, serde_json::Error> {
-        serde_json::to_string(self.0.lock().expect("failed to lock container").deref())
+        serde_json::to_string(self.0.read().expect("failed to lock container").deref())
     }
 }
 
@@ -292,7 +292,7 @@ fn run_ui(app: Arc<App>, dispatch: Box<Fn(Action)>) {
                 .color(conrod_core::color::TRANSPARENT)
                 .set(ids.canvas, ui);
 
-            let container = app.container.0.lock().expect("unable to lock app from ui");
+            let container = app.container.0.read().expect("unable to lock app from ui");
 
             let items: Vec<&MetaPreview> = container
                 .item_pages
