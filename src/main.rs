@@ -158,7 +158,12 @@ fn run_ui(app: Arc<App>, dispatch: Box<Fn(Action)>) {
         .with_title("Stremio Example UI")
         .with_dimensions((WIN_W, WIN_H).into());
 
-    let context = glutin::ContextBuilder::new().with_multisampling(4);
+    let context = glutin::ContextBuilder::new()
+        // tried GLES to enable vaapi egl, but it's not so simple since it requires a XCB extension
+        // also seems to fail with gfx
+        // but see https://github.com/jbg/conrod-android-skeleton
+        //.with_gl(glutin::GlRequest::Specific(glutin::Api::OpenGlEs, (3, 0)));
+        .with_multisampling(4);
     let mut events_loop = winit::EventsLoop::new();
 
     // Initialize gfx things
@@ -247,7 +252,7 @@ fn run_ui(app: Arc<App>, dispatch: Box<Fn(Action)>) {
         };
 
         // Draw if anything has changed
-        let mut needs_cleanup = false;
+        let mut needs_swap_buffers = false;
         let dpi_factor = window.get_hidpi_factor() as f32;
         let dims = (win_w as f32 * dpi_factor, win_h as f32 * dpi_factor);
 
@@ -255,7 +260,7 @@ fn run_ui(app: Arc<App>, dispatch: Box<Fn(Action)>) {
         let mpv_is_playing = true;
         if mpv_is_playing {
             mpv.draw(0, dims.0 as i32, -(dims.1 as i32)).expect("failed to draw on conrod window");
-            needs_cleanup = true;
+            needs_swap_buffers = true;
         }
         let maybe_primitives = if mpv_is_playing { Some(ui.draw()) } else { ui.draw_if_changed() };
         if let Some(primitives) = maybe_primitives {
@@ -274,9 +279,10 @@ fn run_ui(app: Arc<App>, dispatch: Box<Fn(Action)>) {
             renderer.draw(&mut factory, &mut encoder, &image_map);
 
             encoder.flush(&mut device);
-            needs_cleanup = true;
+            needs_swap_buffers = true;
         }
-        if needs_cleanup {
+        if needs_swap_buffers {
+            // see vsync at https://docs.rs/glium/0.19.0/glium/glutin/struct.GlAttributes.html 
             window.swap_buffers().unwrap();
             device.cleanup();
         }
