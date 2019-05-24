@@ -16,6 +16,7 @@ use tokio::executor::current_thread::spawn;
 use tokio::runtime::current_thread::run;
 
 // TODO
+// * list of all widgets for a simple, mvp UI
 // * EGL might help initializing zero-copy vaapi; see https://www.qtav.org/blog/1.9.0.html ; and EGL_EXT_image_dma_buf_import
 // * investigate CPU load on windows (with mpv symbols)
 // * implement Streams (in the UI)
@@ -27,6 +28,7 @@ use tokio::runtime::current_thread::run;
 // * if we're gonna cache images with sled, we need to do it in a separate thread
 // * optimization: only draw when there is a new frame
 // * optimization: do not draw the UI when it's not showing (player)
+// * optimization: see https://github.com/mpv-player/mpv/blob/master/libmpv/render_gl.h#L81
 // * optimization: look into d3d11 + hw accel
 
 struct ContainerHolder(RwLock<CatalogFiltered>);
