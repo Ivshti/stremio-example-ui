@@ -40,9 +40,9 @@ impl ContainerHolder {
 }
 
 impl ContainerInterface for ContainerHolder {
-    fn dispatch(&self, msg: &Msg) -> bool {
+    fn update(&self, msg: &Msg) -> bool {
         let mut state = self.0.write().expect("failed to lock container");
-        match state.dispatch(msg) {
+        match state.update(msg) {
             Some(s) => {
                 *state = *s;
                 true
