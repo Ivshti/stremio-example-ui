@@ -6,6 +6,7 @@ edition = "2018"
 
 [dependencies]
 stremio-core = { git = "https://github.com/stremio/stremio-core.git" }
+stremio-derive = { git = "ssh://git@github.com/Stremio/stremio-core.git" }
 reqwest = "0.9.x"
 tokio = "0.1"
 futures = "0.1"
