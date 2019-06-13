@@ -42,20 +42,20 @@ fn main() {
     let (tx, action_receiver) = channel(1000);
 
     // Spawn the UI thread
-    let ui_thread = thread::spawn(enclose!((runtime, tx) || run_ui(runtime, tx)));
+    let ui_thread = thread::spawn(enclose!((runtime) move || run_ui(runtime, tx)));
 
     run(
         action_receiver.for_each(enclose!((runtime) move |action| {
             spawn(runtime.dispatch(&Msg::Action(action)));
             future::ok(())
         }))
-        .join(runtime_receiver.for_each(|_msg| {
+        .select(runtime_receiver.for_each(|_msg| {
             dbg!(&_msg);
             //if let RuntimeEv::NewModel(_) = ev {
             //}
             future::ok(())
         }))
-        .map(|(_, _)| ())
+        .then(|_| future::ok(()))
     );
 
     ui_thread.join().expect("failed joining ui_thread");
@@ -146,7 +146,6 @@ fn run_ui(runtime: Runtime<Env, Model>, tx: Sender<Action>) {
     let video_path = "http://distribution.bbb3d.renderfarming.net/video/mp4/bbb_sunflower_1080p_30fps_normal.mp4";
     mpv.command(&["loadfile", video_path])
         .expect("Error loading file");
-
 
     let mut renderer =
         conrod_gfx::Renderer::new(&mut factory, &rtv, window.get_hidpi_factor() as f64).unwrap();
