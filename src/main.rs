@@ -1,19 +1,18 @@
 #![windows_subsystem = "windows"]
 use enclose::*;
-use futures::sync::mpsc::channel;
 use futures::{future, Future, Stream};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
-use std::rc::Rc;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, RwLock};
-use std::thread;
-use stremio_core::middlewares::*;
 use stremio_core::state_types::*;
+// required to make stremio_derive work :(
+pub use stremio_core::state_types;
+use stremio_derive::*;
+use std::thread;
 use stremio_core::types::MetaPreview;
 use stremio_core::types::addons::{ResourceRef, ResourceRequest};
 use tokio::executor::current_thread::spawn;
 use tokio::runtime::current_thread::run;
+use futures::future::lazy;
 
 // TODO
 // * list of all widgets for a simple, mvp UI
@@ -31,78 +30,31 @@ use tokio::runtime::current_thread::run;
 // * optimization: see https://github.com/mpv-player/mpv/blob/master/libmpv/render_gl.h#L81
 // * optimization: look into d3d11 + hw accel
 
-struct ContainerHolder(RwLock<CatalogFiltered>);
-
-impl ContainerHolder {
-    pub fn new(container: CatalogFiltered) -> Self {
-        ContainerHolder(RwLock::new(container))
-    }
+#[derive(Model, Debug, Default)]
+struct Model {
+    ctx: Ctx<Env>,
+    catalogs: CatalogFiltered,
 }
-
-impl ContainerInterface for ContainerHolder {
-    fn update(&self, msg: &Msg) -> bool {
-        let mut state = self.0.write().expect("failed to lock container");
-        match state.update(msg) {
-            Some(s) => {
-                *state = *s;
-                true
-            }
-            None => false,
-        }
-    }
-    fn get_state_serialized(&self) -> Result<String, serde_json::Error> {
-        serde_json::to_string(self.0.read().expect("failed to lock container").deref())
-    }
-}
-
-struct App {
-    container: Arc<ContainerHolder>,
-    is_dirty: AtomicBool,
-}
-
-const MAX_ACTION_BUFFER: usize = 1024;
 
 fn main() {
-    let container = Arc::new(ContainerHolder::new(CatalogFiltered::new()));
-
-    let app = Arc::new(App {
-        container: container.clone(),
-        is_dirty: AtomicBool::new(false),
-    });
-
-    #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
-    enum ContainerId {
-        //Board,
-        Discover,
-    };
-    let muxer = Rc::new(ContainerMuxer::new(
-        vec![
-            Box::new(ContextMiddleware::<Env>::new()),
-            Box::new(AddonsMiddleware::<Env>::new()),
-        ],
-        vec![(
-            ContainerId::Discover,
-            container.clone() as Arc<dyn ContainerInterface>,
-        )],
-        Box::new(enclose!((app) move |ev| {
-            if let MuxerEvent::NewState(_) = ev {
-                app.is_dirty.store(true, Ordering::Relaxed);
-            }
-        })),
-    ));
-
-    // Actions channel
-    let (tx, rx) = channel(MAX_ACTION_BUFFER);
-
+    let app = Model::default();
+    let (runtime, rx) = Runtime::<Env, Model>::new(app, 1000);
     // Spawn the UI
-    let dispatch = Box::new(move |action| {
-        tx.clone().try_send(action).expect("failed sending");
-    });
-    let ui_thread = thread::spawn(enclose!((app) || run_ui(app, dispatch)));
+    let ui_thread = thread::spawn(enclose!((runtime) || run_ui(runtime)));
 
-    run(rx.for_each(enclose!((muxer) move |action| {
-        muxer.dispatch(&action);
-        future::ok(())
+    run(lazy(enclose!((runtime) move || {
+        spawn(rx.for_each(|_msg| {
+            dbg!(&_msg);
+            //if let RuntimeEv::NewModel(_) = ev {
+            //}
+            future::ok(())
+        }));
+        let resource_req = ResourceRequest {
+            base: "https://v3-cinemeta.strem.io/manifest.json".to_owned(),
+            path: ResourceRef::without_extra("catalog", "movie", "top"),
+        };
+        let action = Action::Load(ActionLoad::CatalogFiltered { resource_req });
+        runtime.dispatch(&action.into())
     })));
 
     ui_thread.join().expect("failed joining ui_thread");
@@ -146,14 +98,11 @@ unsafe extern "C" fn get_proc_address(arg: *mut c_void,
     arg.get_proc_address(name) as *mut c_void
 }
 
-fn run_ui(app: Arc<App>, dispatch: Box<Fn(Action)>) {
+fn run_ui(runtime: Runtime<Env, Model>) {
     // Trigger loading a catalog ASAP
-    let resource_req = ResourceRequest {
-        transport_url: "https://v3-cinemeta.strem.io/manifest.json".to_owned(),
-        resource_ref: ResourceRef::without_extra("catalog", "movie", "top"),
-    };
-    let action = Action::Load(ActionLoad::CatalogFiltered { resource_req });
-    dispatch(action);
+
+    // WARNING: we can't spawn actions on the main thread
+    //Env::exec(runtime.dispatch(&Msg::Action(action)));
 
     // Builder for window
     let builder = glutin::WindowBuilder::new()
@@ -293,16 +242,17 @@ fn run_ui(app: Arc<App>, dispatch: Box<Fn(Action)>) {
         //while let Some(ev) = mpv.wait_event(0.0) {dbg!(ev);}
 
         // Update widgets if any event has happened
-        if ui.global_input().events().next().is_some() || app.is_dirty.load(Ordering::Relaxed) {
+        if ui.global_input().events().next().is_some() {
             let ui = &mut ui.set_widgets();
 
             widget::Canvas::new()
                 .color(conrod_core::color::TRANSPARENT)
                 .set(ids.canvas, ui);
 
-            let container = app.container.0.read().expect("unable to lock app from ui");
+            let app = runtime.app.read().expect("unable to lock app from ui");
 
-            let items: Vec<&MetaPreview> = container
+            let items: Vec<&MetaPreview> = app
+                .catalogs
                 .item_pages
                 .iter()
                 .filter_map(|g| match g {
@@ -328,8 +278,6 @@ fn run_ui(app: Arc<App>, dispatch: Box<Fn(Action)>) {
             if let Some(s) = scrollbar {
                 s.set(ui)
             };
-
-            app.is_dirty.store(false, Ordering::Relaxed);
         }
 
         // Only tick each FRAME_MILLIS; wait if we're faster than that
@@ -372,7 +320,7 @@ impl Environment for Env {
             .map_err(|e| e.into());
         Box::new(fut)
     }
-    fn exec(fut: Box<Future<Item = (), Error = ()>>) {
+    fn exec(fut: Box<dyn Future<Item = (), Error = ()>>) {
         spawn(fut);
     }
     fn get_storage<T: 'static + DeserializeOwned>(key: &str) -> EnvFuture<Option<T>> {
