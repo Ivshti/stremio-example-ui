@@ -12,7 +12,7 @@ use stremio_core::types::MetaPreview;
 use stremio_core::types::addons::{ResourceRef, ResourceRequest};
 use tokio::executor::current_thread::spawn;
 use tokio::runtime::current_thread::run;
-use futures::future::lazy;
+use futures::sync::mpsc::{channel, Sender};
 
 // TODO
 // * list of all widgets for a simple, mvp UI
@@ -38,24 +38,25 @@ struct Model {
 
 fn main() {
     let app = Model::default();
-    let (runtime, rx) = Runtime::<Env, Model>::new(app, 1000);
-    // Spawn the UI
-    let ui_thread = thread::spawn(enclose!((runtime) || run_ui(runtime)));
+    let (runtime, runtime_receiver) = Runtime::<Env, Model>::new(app, 1000);
+    let (tx, action_receiver) = channel(1000);
 
-    run(lazy(enclose!((runtime) move || {
-        spawn(rx.for_each(|_msg| {
+    // Spawn the UI thread
+    let ui_thread = thread::spawn(enclose!((runtime, tx) || run_ui(runtime, tx)));
+
+    run(
+        action_receiver.for_each(enclose!((runtime) move |action| {
+            spawn(runtime.dispatch(&Msg::Action(action)));
+            future::ok(())
+        }))
+        .join(runtime_receiver.for_each(|_msg| {
             dbg!(&_msg);
             //if let RuntimeEv::NewModel(_) = ev {
             //}
             future::ok(())
-        }));
-        let resource_req = ResourceRequest {
-            base: "https://v3-cinemeta.strem.io/manifest.json".to_owned(),
-            path: ResourceRef::without_extra("catalog", "movie", "top"),
-        };
-        let action = Action::Load(ActionLoad::CatalogFiltered { resource_req });
-        runtime.dispatch(&action.into())
-    })));
+        }))
+        .map(|(_, _)| ())
+    );
 
     ui_thread.join().expect("failed joining ui_thread");
 }
@@ -98,11 +99,16 @@ unsafe extern "C" fn get_proc_address(arg: *mut c_void,
     arg.get_proc_address(name) as *mut c_void
 }
 
-fn run_ui(runtime: Runtime<Env, Model>) {
+fn run_ui(runtime: Runtime<Env, Model>, tx: Sender<Action>) {
     // Trigger loading a catalog ASAP
 
     // WARNING: we can't spawn actions on the main thread
-    //Env::exec(runtime.dispatch(&Msg::Action(action)));
+    let resource_req = ResourceRequest {
+        base: "https://v3-cinemeta.strem.io/manifest.json".to_owned(),
+        path: ResourceRef::without_extra("catalog", "movie", "top"),
+    };
+    let action = Action::Load(ActionLoad::CatalogFiltered { resource_req });
+    tx.clone().try_send(action).unwrap();
 
     // Builder for window
     let builder = glutin::WindowBuilder::new()
