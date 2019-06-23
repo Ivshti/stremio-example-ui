@@ -337,7 +337,7 @@ impl Environment for Env {
             opt.map(|v| serde_json::from_slice(&*v).unwrap()),
         ))
     }
-    fn set_storage<T: 'static + Serialize>(key: &str, value: Option<&T>) -> EnvFuture<()> {
+    fn set_storage<T: Serialize>(key: &str, value: Option<&T>) -> EnvFuture<()> {
         let res = match value {
             Some(v) => STORAGE.set(key.as_bytes(), serde_json::to_string(v).unwrap().as_bytes()),
             None => STORAGE.del(key),
