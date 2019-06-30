@@ -1880,7 +1880,7 @@ dependencies = [
 [[package]]
 name = "stremio-core"
 version = "0.1.0"
-source = "git+https://github.com/stremio/stremio-core.git#f4d6c38d2d35380e8bc3f29ba21567899bd1a04c"
+source = "git+https://github.com/stremio/stremio-core.git#504fa2b986aea92f97ca852cf71fdd9b2f45a597"
 dependencies = [
  "base64 0.10.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "chrono 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1905,7 +1905,7 @@ dependencies = [
 [[package]]
 name = "stremio-derive"
 version = "0.1.0"
-source = "git+https://github.com/stremio/stremio-core.git#f4d6c38d2d35380e8bc3f29ba21567899bd1a04c"
+source = "git+https://github.com/stremio/stremio-core.git#504fa2b986aea92f97ca852cf71fdd9b2f45a597"
 dependencies = [
  "quote 0.6.12 (registry+https://github.com/rust-lang/crates.io-index)",
  "syn 0.15.33 (registry+https://github.com/rust-lang/crates.io-index)",
