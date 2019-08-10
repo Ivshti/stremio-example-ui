@@ -103,11 +103,11 @@ fn run_ui(runtime: Runtime<Env, Model>, tx: Sender<Action>) {
     // Trigger loading a catalog ASAP
 
     // WARNING: we can't spawn actions on the main thread
-    let resource_req = ResourceRequest {
+    let selected = ResourceRequest {
         base: "https://v3-cinemeta.strem.io/manifest.json".to_owned(),
         path: ResourceRef::without_extra("catalog", "movie", "top"),
     };
-    let action = Action::Load(ActionLoad::CatalogFiltered { resource_req });
+    let action = Action::Load(ActionLoad::CatalogFiltered(selected));
     tx.clone().try_send(action).unwrap();
 
     // Builder for window
@@ -256,16 +256,10 @@ fn run_ui(runtime: Runtime<Env, Model>, tx: Sender<Action>) {
 
             let app = runtime.app.read().expect("unable to lock app from ui");
 
-            let items: Vec<&MetaPreview> = app
-                .catalogs
-                .item_pages
-                .iter()
-                .filter_map(|g| match g {
-                    Loadable::Ready(i) => Some(i),
-                    _ => None
-                })
-                .flatten()
-                .collect();
+            let items: Vec<&MetaPreview> = match &app.catalogs.content {
+                Loadable::Ready(i) => i.iter().collect(),
+                _ => vec![]
+            };
             let (mut list_items, scrollbar) = widget::List::flow_down(items.len())
                 .item_size(50.0)
                 .scrollbar_on_top()
